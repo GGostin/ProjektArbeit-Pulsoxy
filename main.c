@@ -14,6 +14,14 @@
 #define LCD5110_DATA                1
 
 unsigned int i = 0;
+unsigned int DataReady = 0;
+
+typedef enum{ DC = 0, AC, Temp, LiPo)ADCTYPE;
+
+unsigned int ADCValue[4];//
+
+
+
 
 
 void InitLCDPins(void);
@@ -53,7 +61,14 @@ void main(void) {
     TB3CCR5  = 700-1;
     TB3CTL   = TBSSEL__SMCLK | MC__UP | TBCLR;
 
+    //Configure an ADC on PIN so and so
 
+    ADCCTL0 |= ADCON | ADCMSC;
+    ADCCTL1 |= ADCSHS_1 | ADCSHP | ADCCONSEQ_2;
+    ADCCTL2 &= ~ADCRES;
+    ADCCTL2 |= ADCRES_2;
+    ADCMCTL0 |= ACDINCH_1;
+    ADCCTL0 |= ADCENC;
 
     InitLCDPins();
 
@@ -112,6 +127,24 @@ void main(void) {
 
 
 } // eof main
+
+
+#pragma vector=ADC_VECTOR
+__interrupt void ADC_ISR(void)
+{
+    switch(__even_in_range(ADCIV,ADCIV_ADCIFG))
+    {
+    case ADCIV_ADCIFG:
+        ADCValue[i] = ADCMEM0; //Switch between ADC and DC Temp;
+        i ^= BIT0;
+        if(i == ADCType:DC)
+        {
+            DataReady = 1;
+        }
+        break;
+    default: break;
+    }
+}
 
 void InitLCDPins(void)
 {
