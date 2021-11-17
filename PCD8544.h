@@ -1,6 +1,9 @@
 #ifndef PCD8544_H_
 #define PCD8544_H_
 
+//Taken from https://gist.github.com/DmitryMyadzelets/83b6e1384a1ee35a7f5f
+
+
 //***************************************************************************************
 //  MSP430 + PCD8544-based LCD (like Nokia 5110)
 //
