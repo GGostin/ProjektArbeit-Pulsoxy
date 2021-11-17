@@ -31,6 +31,31 @@ void main(void) {
     *
     *
     */
+
+    //Use PIn 5.0 and 5.1 for switching the LEDs
+    //Need TB2xxx
+
+    P5DIR |= BIT0 | BIT1;
+    P5SEL0 |= BIT0 | BIT1;
+
+    TB2CCR0  = 1000-1;          //Every 1 ms  the LED already on for 110 us and will continue for another 110 us
+    TB2CCTL1 = OUTMOD_2;    //TB2CCR1 toggle/set
+    TB2CCR1  = 110-1;         //0..110us , 1.89ms ... 2ms
+    TB2CCTL2 = OUTMOD_6;    //TBCCR2 reset/set
+    TB2CCR2  = 890-1;         //0.890 ms - 1.11 ms
+    TB2CTL   = TBSSEL_1 | MC_3;
+
+    //Use Pin 6.3 , 6.4 (TB3.4, TB3.5) as PWM for the LEDs intensity
+
+    TB3CCR0  = 1000 -1; //PWM 1 ms Period
+    TB3CCTL4 = OUTMOD_7; //CCR4 reset/set
+    TB3CCTL5 = OUTMOD_7; //CCR5 reset/set
+    TB3CCR4  = 500-1;
+    TB3CCR5  = 700-1;
+    TB3CTL   = TBSSEL__SMCLK | MC__UP | TBCLR;
+
+
+
     InitLCDPins();
 
     // Setup UCAO
