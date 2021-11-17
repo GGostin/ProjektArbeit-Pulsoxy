@@ -33,12 +33,11 @@ void main(void) {
     */
 
     //Use PIn 5.0 and 5.1 for switching the LEDs
-    //Need TB2xxx
 
     P5DIR |= BIT0 | BIT1;
     P5SEL0 |= BIT0 | BIT1;
 
-    TB2CCR0  = 1000-1;          //Every 1 ms  the LED already on for 110 us and will continue for another 110 us
+    TB2CCR0  = 1000-1;          //Every 1 ms  the LED is already on for 110 us and will continue for another 110 us
     TB2CCTL1 = OUTMOD_2;    //TB2CCR1 toggle/set
     TB2CCR1  = 110-1;         //0..110us , 1.89ms ... 2ms
     TB2CCTL2 = OUTMOD_6;    //TBCCR2 reset/set
@@ -60,14 +59,16 @@ void main(void) {
 
     // Setup UCAO
 
-    PM5CTL0 &= ~LOCKLPM5;
+    PM5CTL0 &= ~LOCKLPM5; //Without this the pins won't be configured in Hardware.
 
 
 
-    __delay_cycles(500000);
+    __delay_cycles(300000); // we have to wait a bit for the LCD to boot up.
     initLCD();
 
     clearLCD();
+
+    __delay_cycles(500000); //So that we come from a fres boot the Screen will be empty and doesn't accidentally contain old Information
 
     setAddr(8,0);
     writeStringToLCD("SPO2");
