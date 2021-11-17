@@ -1,0 +1,17 @@
+
+.ccsproject
+.cproject
+.launches/TestFR2355.launch
+.project
+*.prefs
+*.opt
+*.d
+*.obj
+Debug/makefile
+*.mk
+*.out
+*.map
+*.xml
+*.cmd
+*.ccxml
+targetConfigs/readme.txt
