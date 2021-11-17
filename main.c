@@ -16,9 +16,9 @@
 unsigned int i = 0;
 unsigned int DataReady = 0;
 
-typedef enum{ DC = 0, AC, Temp, LiPo)ADCTYPE;
+typedef enum{ DCRed = 0, ACRed, DCInfra,ACInfra, Temp, LiPo}ADCTYPE;
 
-unsigned int ADCValue[4];//
+unsigned int ADCValue[6];//
 
 
 
@@ -46,29 +46,31 @@ void main(void) {
     P5SEL0 |= BIT0 | BIT1;
 
     TB2CCR0  = 1000-1;          //Every 1 ms  the LED is already on for 110 us and will continue for another 110 us
-    TB2CCTL1 = OUTMOD_2;    //TB2CCR1 toggle/set
+    TB2CCTL1 |= OUTMOD_2;    //TB2CCR1 toggle/set
     TB2CCR1  = 110-1;         //0..110us , 1.89ms ... 2ms
-    TB2CCTL2 = OUTMOD_6;    //TBCCR2 reset/set
+    TB2CCTL2 |= OUTMOD_6;    //TBCCR2 reset/set
     TB2CCR2  = 890-1;         //0.890 ms - 1.11 ms
-    TB2CTL   = TBSSEL_1 | MC_3;
+    TB2CTL   |= TBSSEL_2 | MC_3 | TBIE; // SMCLK, Up-Down-Mode, Interrupt Enable on Max Value and Zero
+    TB2CCTL0 |= CCIE; //Enable Interrupt when CCR0 is reached.
 
     //Use Pin 6.3 , 6.4 (TB3.4, TB3.5) as PWM for the LEDs intensity
 
     TB3CCR0  = 1000 -1; //PWM 1 ms Period
-    TB3CCTL4 = OUTMOD_7; //CCR4 reset/set
-    TB3CCTL5 = OUTMOD_7; //CCR5 reset/set
-    TB3CCR4  = 500-1;
-    TB3CCR5  = 700-1;
-    TB3CTL   = TBSSEL__SMCLK | MC__UP | TBCLR;
+    TB3CCTL4 |= OUTMOD_7; //CCR4 reset/set
+    TB3CCTL5 |= OUTMOD_7; //CCR5 reset/set
+    TB3CCR4  = 700-1;
+    TB3CCR5  = 350-1;
+    TB3CTL   |= TBSSEL__SMCLK | MC__UP | TBCLR; //Up_Mode, 1 MHz
 
-    //Configure an ADC on PIN so and so
 
-    ADCCTL0 |= ADCON | ADCMSC;
-    ADCCTL1 |= ADCSHS_1 | ADCSHP | ADCCONSEQ_2;
+    //Configuration for ADC Pin start on DC for RED (A3, P1.3)
+    //Later each ADC Pin (A1, A3, A10, A11) is configured and triggered manually
+
+    ADCCTL0 |= ADCON ;
     ADCCTL2 &= ~ADCRES;
-    ADCCTL2 |= ADCRES_2;
-    ADCMCTL0 |= ACDINCH_1;
-    ADCCTL0 |= ADCENC;
+    ADCCTL2 |= ADCRES_2; // 12 Bit Conversion (Takes 14 Clock Cycles)
+    ADCMCTL0 |= ADCINCH_3; // Channel A3
+    ADCCTL0 |= ADCENC; //Enable Conversion
 
     InitLCDPins();
 
@@ -76,7 +78,7 @@ void main(void) {
 
     PM5CTL0 &= ~LOCKLPM5; //Without this the pins won't be configured in Hardware.
 
-
+    //__bis_SR_register(GIE);
 
     __delay_cycles(300000); // we have to wait a bit for the LCD to boot up.
     initLCD();
@@ -129,20 +131,30 @@ void main(void) {
 } // eof main
 
 
-#pragma vector=ADC_VECTOR
-__interrupt void ADC_ISR(void)
+#pragma vector = TIMER2_B1_VECTOR
+__interrupt void TIMER2_B1_ISR(void)
 {
-    switch(__even_in_range(ADCIV,ADCIV_ADCIFG))
+    //TODO 2 Different Interrupts are Called in UP DOWN mode
+    //CCIFG when max is reached
+    //TBIFG when 0 is reached
+    //
+    if(CCIFG & 0x1) //Max Reached , Our Red LED
     {
-    case ADCIV_ADCIFG:
-        ADCValue[i] = ADCMEM0; //Switch between ADC and DC Temp;
-        i ^= BIT0;
-        if(i == ADCType:DC)
-        {
-            DataReady = 1;
-        }
-        break;
-    default: break;
+        //Do an ADC Conversion and take The DC
+        //Then Switch to the next channel and do a conversion there too.
+        //At the end Clear the flag
+        TB2CCTL0 &= ~CCIFG;
+    }
+    else if(TBIFG & 0x01) //Zero Reached, Our infra Red LED
+    {
+        //Do an ADC Conversion and take The DC
+        //Then Switch to the next channel and do a conversion there too.
+        //At the end Clear the flag
+        TB2CTL &= ~TBIFG;
+    }
+    else
+    {
+        return; //We should never reach this.
     }
 }
 
