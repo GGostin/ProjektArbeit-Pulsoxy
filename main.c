@@ -21,9 +21,6 @@ typedef enum{ DCRed = 0, ACRed, DCInfra,ACInfra, Temp, LiPo}ADCTYPE;
 unsigned int ADCValue[6];//
 
 
-
-
-
 void InitLCDPins(void);
 
 void main(void) {
@@ -52,15 +49,6 @@ void main(void) {
     TB2CCR2  = 890-1;         //0.890 ms - 1.11 ms
     TB2CTL   |= TBSSEL_2 | MC_3 | TBIE; // SMCLK, Up-Down-Mode, Interrupt Enable on Max Value and Zero
     TB2CCTL0 |= CCIE; //Enable Interrupt when CCR0 is reached.
-
-    //Use Pin 6.3 , 6.4 (TB3.4, TB3.5) as PWM for the LEDs intensity
-
-    TB3CCR0  = 1000 -1; //PWM 1 ms Period
-    TB3CCTL4 |= OUTMOD_7; //CCR4 reset/set
-    TB3CCTL5 |= OUTMOD_7; //CCR5 reset/set
-    TB3CCR4  = 700-1;
-    TB3CCR5  = 350-1;
-    TB3CTL   |= TBSSEL__SMCLK | MC__UP | TBCLR; //Up_Mode, 1 MHz
 
 
     //Configuration for ADC Pin start on DC for RED (A3, P1.3)
