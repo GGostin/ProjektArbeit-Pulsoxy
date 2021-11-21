@@ -2,10 +2,23 @@
 
 unsigned int DAC_data = 0;
 
-int main(void)
+int testmain(void)
 {
     WDTCTL = WDTPW + WDTHOLD;                 // Stop watch dog timer
 
+	P5DIR  |= BIT0 | BIT1;
+	P5SEL0 |= BIT0 | BIT1;
+	
+	
+	// It runs with 1 MHz, but while testing it showed that a us takes 20% more time
+	TB2CCR0 = 781 -1; 		// Every 1 ms the LED is already on for 110 us and will continue for another 110 us
+	TB2CCTL1 |= OUTMOD_2; 	//TB2CCR1 toggle/set
+	TB2CCR1 = 86 -1; 		//0..110 us , 1.89ms ... 2ms
+	TB2CCTL2 |= OUTMOD_6; 	//TBCCR2 reset/set
+	TB2CCR2 = 695 -1; 		//0.890ms - 1.11 ms
+	TB2CTL  |= TBSSEL__SMCLK | MC_3; // SMCLK, Up-Down-Mode
+	
+	
 
     P3SEL0 |= BIT1 | BIT5;
     P3SEL1 |= BIT1 | BIT5;
