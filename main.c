@@ -1,6 +1,7 @@
 
 #include <msp430.h>
 #include "PCD8544.h"
+#include <stdio.h>
 
 #define LCD5110_SCLK_PIN            BIT5
 #define LCD5110_DN_PIN              BIT7
@@ -14,12 +15,14 @@
 #define LCD5110_DATA                1
 
 unsigned int i = 0;
-unsigned int DataReady = 0;
+unsigned int DataReadyRed = 0;
+unsigned int DataReadyInfraRed = 0;
 
 typedef enum{ DCRed = 0, ACRed, DCInfra,ACInfra, Temp, LiPo}ADCTYPE;
 
 unsigned int ADCValue[6];//
-
+unsigned int numInterruptA = 0;
+unsigned int numInterruptB = 0;
 
 void InitLCDPins(void);
 
@@ -42,13 +45,7 @@ void main(void) {
     P5DIR |= BIT0 | BIT1;
     P5SEL0 |= BIT0 | BIT1;
 
-    TB2CCR0  = 1000-1;          //Every 1 ms  the LED is already on for 110 us and will continue for another 110 us
-    TB2CCTL1 |= OUTMOD_2;    //TB2CCR1 toggle/set
-    TB2CCR1  = 110-1;         //0..110us , 1.89ms ... 2ms
-    TB2CCTL2 |= OUTMOD_6;    //TBCCR2 reset/set
-    TB2CCR2  = 890-1;         //0.890 ms - 1.11 ms
-    TB2CTL   |= TBSSEL_2 | MC_3 | TBIE; // SMCLK, Up-Down-Mode, Interrupt Enable on Max Value and Zero
-    TB2CCTL0 |= CCIE; //Enable Interrupt when CCR0 is reached.
+
 
 
     //Configuration for ADC Pin start on DC for RED (A3, P1.3)
@@ -62,11 +59,10 @@ void main(void) {
 
     InitLCDPins();
 
-    // Setup UCAO
+     //Setup UCAO
 
-    PM5CTL0 &= ~LOCKLPM5; //Without this the pins won't be configured in Hardware.
 
-    //__bis_SR_register(GIE);
+
 
     __delay_cycles(300000); // we have to wait a bit for the LCD to boot up.
     initLCD();
@@ -74,6 +70,21 @@ void main(void) {
     clearLCD();
 
     __delay_cycles(500000); //So that we come from a fres boot the Screen will be empty and doesn't accidentally contain old Information
+
+    TB2CCR0  = 781-1;          //Every 1 ms  the LED is already on for 110 us and will continue for another 110 us
+    TB2CCTL1 |= OUTMOD_2;    //TB2CCR1 toggle/set
+    TB2CCR1  = 86-1;         //0..110us , 1.89ms ... 2ms
+    TB2CCTL2 |= OUTMOD_6;    //TBCCR2 reset/set
+    TB2CCR2  = 695-1;         //0.890 ms - 1.11 ms
+    TB2CTL   |= TBSSEL_2 | MC_3 | TBIE |TBCLR; // SMCLK, Up-Down-Mode, Interrupt Enable on Max Value and Zero
+    TB2CCTL0 |= CCIE; //Enable Interrupt when CCR0 is reached.
+
+    PM5CTL0 &= ~LOCKLPM5; //Without this the pins won't be configured in Hardware.
+    TB2CTL &= ~TBIFG;
+    TB2CCTL0 &= ~CCIFG;
+
+    __bis_SR_register(GIE);
+
 
     setAddr(8,0);
     writeStringToLCD("SPO2");
@@ -86,64 +97,55 @@ void main(void) {
     setAddr(62,3);
     writeStringToLCD("62");
 
+    clearBank(5);
+    setAddr(38,5);
+    writeBattery(BATTERY_FULL);
+
     while(1)
     {
-        clearBank(5);
-        __delay_cycles(100000);
-        setAddr(38,5);
-        writeBattery(BATTERY_FULL);
-        __delay_cycles(2000000);
-        setAddr(38,5);
-        writeBattery(BATTERY_75);
-        __delay_cycles(2000000);
-        setAddr(38,5);
-        writeBattery(BATTERY_50);
-        __delay_cycles(2000000);
-        setAddr(38,5);
-        writeBattery(BATTERY_25);
-        __delay_cycles(2000000);
-
-        for(i = 0; i < 6; i++)
-        {
-            setAddr(38,5);
-            writeBattery(BATTERY_10);
-            __delay_cycles(500000);
-            setAddr(38,5);
-            writeBattery(BATTERY_25);
-            __delay_cycles(500000);
-        }
     }
-;
 
 
 } // eof main
 
-
+#if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
 #pragma vector = TIMER2_B1_VECTOR
 __interrupt void TIMER2_B1_ISR(void)
+#elif defined(__GNUC__)
+void __attribute__ ((interrupt(TIMER2_B1_VECTOR))) TIMER2_B1_ISR (void)
+#else
+#error Compiler not supported!
+#endif
 {
-    //TODO 2 Different Interrupts are Called in UP DOWN mode
-    //CCIFG when max is reached
-    //TBIFG when 0 is reached
-    //
-    if(CCIFG & 0x1) //Max Reached , Our Red LED
+
+    //#TODO#//
+    //DO The ADC Conversion of the InfraRed here.
+
+    switch(TB2IV)
     {
-        //Do an ADC Conversion and take The DC
-        //Then Switch to the next channel and do a conversion there too.
-        //At the end Clear the flag
-        TB2CCTL0 &= ~CCIFG;
+    case TBIV_14: numInterruptA++; break; //TBIFG
+    case TBIV_2: numInterruptB++; break; //CCRIFG
+
     }
-    else if(TBIFG & 0x01) //Zero Reached, Our infra Red LED
-    {
-        //Do an ADC Conversion and take The DC
-        //Then Switch to the next channel and do a conversion there too.
-        //At the end Clear the flag
-        TB2CTL &= ~TBIFG;
-    }
-    else
-    {
-        return; //We should never reach this.
-    }
+}
+
+#if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
+#pragma vector = TIMER2_B0_VECTOR
+__interrupt void TIMER2_B0_ISR(void)
+#elif defined(__GNUC__)
+void __attribute__ ((interrupt(TIMER2_B0_VECTOR))) TIMER2_B0_ISR (void)
+#else
+#error Compiler not supported!
+#endif
+{
+    //Now this is really interesting. In Up/Down Mode when an Interrupt Is set when CCR0 is reached, the TB2IV Vector doesnt get anything. It just stays empty whiel going in a B0 ISR
+    //The TBIFG interrupt when reaching 0 on the other hands goes into TIMER2_B1_ISR and creates an entry in TB2IV.
+
+    //#TODO#//
+    //Do the ADC Conversion of the Red LED here.
+
+    numInterruptB++;
+
 }
 
 void InitLCDPins(void)
