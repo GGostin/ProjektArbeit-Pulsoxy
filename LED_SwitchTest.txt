@@ -1,0 +1,52 @@
+#include <msp430.h>
+
+unsigned int DAC_data = 0;
+
+int main(void)
+{
+    WDTCTL = WDTPW + WDTHOLD;                 // Stop watch dog timer
+
+
+    P3SEL0 |= BIT1 | BIT5;
+    P3SEL1 |= BIT1 | BIT5;
+
+    PMMCTL0_H = PMMPW_H;                      // Unlock the PMM registers
+    PMMCTL2 = INTREFEN | REFVSEL_2;           // Enable internal 2.5V reference
+    while(!(PMMCTL2 & REFGENRDY));            // Poll till internal reference settles
+
+    SAC2DAC |= DACSREF_1  | DACEN;
+    SAC2DAT = DAC_data;
+
+    SAC3DAC |= DACSREF_1  | DACEN;
+    SAC3DAT = DAC_data;
+
+
+    SAC2OA  |= PMUXEN_1 | NMUXEN_1 | NSEL_1 | PSEL_1; //All Negative and Positives Inputs are Connected; 12 Bits reference ADC as pos Input, PGA Source is ground for neg Input, Gain is 1
+    SAC2OA  |= OAPM; //Low Speed and Low Power. We barely need to change this value
+    SAC2PGA |= MSEL_1; // Buffer Mode
+    SAC2OA  |= SACEN | OAEN; //Enable
+
+
+    SAC3OA  |= PMUXEN_1 | NMUXEN_1 | NSEL_1 | PSEL_1; //All Negative and Positives Inputs are Connected; 12 Bits reference ADC as pos Input, PGA Source is ground for neg Input, Gain is 1
+    SAC3OA  |= OAPM; //Low Speed and Low Power. We barely need to change this value
+    SAC3PGA |= MSEL_1; // Buffer Mode
+    SAC3OA  |= SACEN | OAEN; //Enable
+
+
+    PM5CTL0 &= ~LOCKLPM5;                     // Disable the GPIO power-on default high-impedance mode
+                                               // to activate previously configured port settings
+
+    while(1)
+    {
+        SAC2DAT += 80;
+        SAC2DAT %= 4000;
+
+        SAC3DAT += 50;
+        SAC3DAT %= 2000;
+
+        __delay_cycles(500000);
+
+    }
+
+
+}
