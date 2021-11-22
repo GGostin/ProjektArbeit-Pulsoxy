@@ -18,9 +18,9 @@ unsigned int i = 0;
 unsigned int DataReadyRed = 0;
 unsigned int DataReadyInfraRed = 0;
 
-typedef enum{ DCRed = 0, ACRed, DCInfra,ACInfra, Temp, LiPo}ADCTYPE;
+typedef enum{ DCRED = 0, ACRED, DCINFRA, ACINFRA, DCOFF, ACOFF, TEMP, LIPO}ADCTYPE;
 
-unsigned int ADCValue[6];//
+unsigned int ADCValue[8];//
 unsigned int numInterruptA = 0;
 unsigned int numInterruptB = 0;
 
@@ -40,29 +40,24 @@ void main(void) {
     *
     */
 
-    //Use PIn 5.0 and 5.1 for switching the LEDs
-
-    P5DIR |= BIT0 | BIT1;
-    P5SEL0 |= BIT0 | BIT1;
-
 
 
 
     //Configuration for ADC Pin start on DC for RED (A3, P1.3)
     //Later each ADC Pin (A1, A3, A10, A11) is configured and triggered manually
 
-    ADCCTL0 |= ADCON ;
-    ADCCTL2 &= ~ADCRES;
-    ADCCTL2 |= ADCRES_2; // 12 Bit Conversion (Takes 14 Clock Cycles)
+    P1SEL0 |= BIT1 | BIT3;
+    P1SEL1 |= BIT1 | BIT3;
+    P5SEL0 |= BIT2 | BIT3;
+    P5SEL1 |= BIT2 | BIT3;
+
+    ADCCTL0 &= ~ADCENC;
+    ADCCTL0 |= ADCON;
+    ADCCTL1 = 0;
     ADCMCTL0 |= ADCINCH_3; // Channel A3
-    ADCCTL0 |= ADCENC; //Enable Conversion
+    //ADCIE |= ADCIE0;
 
     InitLCDPins();
-
-     //Setup UCAO
-
-
-
 
     __delay_cycles(300000); // we have to wait a bit for the LCD to boot up.
     initLCD();
@@ -71,13 +66,20 @@ void main(void) {
 
     __delay_cycles(500000); //So that we come from a fres boot the Screen will be empty and doesn't accidentally contain old Information
 
+
+    //Use PIn 5.0 and 5.1 for switching the LEDs
+
+    P5DIR |= BIT0 | BIT1;
+    P5SEL0 |= BIT0 | BIT1;
+
     TB2CCR0  = 781-1;          //Every 1 ms  the LED is already on for 110 us and will continue for another 110 us
     TB2CCTL1 |= OUTMOD_2;    //TB2CCR1 toggle/set
     TB2CCR1  = 86-1;         //0..110us , 1.89ms ... 2ms
     TB2CCTL2 |= OUTMOD_6;    //TBCCR2 reset/set
     TB2CCR2  = 695-1;         //0.890 ms - 1.11 ms
-    TB2CTL   |= TBSSEL_2 | MC_3 | TBIE |TBCLR; // SMCLK, Up-Down-Mode, Interrupt Enable on Max Value and Zero
-    TB2CCTL0 |= CCIE; //Enable Interrupt when CCR0 is reached.
+    TB2CTL   |= TBSSEL_2 | MC_3 |TBCLR; // SMCLK, Up-Down-Mode, Interrupt Enable on Max Value and Zero
+    //TB2CTL   |= TBIE;
+    //TB2CCTL0 |= CCIE; //Enable Interrupt when CCR0 is reached.
 
     PM5CTL0 &= ~LOCKLPM5; //Without this the pins won't be configured in Hardware.
     TB2CTL &= ~TBIFG;
@@ -103,50 +105,85 @@ void main(void) {
 
     while(1)
     {
+        ADCCTL0  &= ~ADCENC;
+        ADCMCTL0 |= ADCINCH_3;
+        ADCCTL0  |= ADCENC | ADCSC;
+
+        while(ADCCTL1 & ADCBUSY);
+
+        numInterruptA = 5;
     }
 
 
 } // eof main
 
-#if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
-#pragma vector = TIMER2_B1_VECTOR
-__interrupt void TIMER2_B1_ISR(void)
-#elif defined(__GNUC__)
-void __attribute__ ((interrupt(TIMER2_B1_VECTOR))) TIMER2_B1_ISR (void)
-#else
-#error Compiler not supported!
-#endif
-{
 
-    //#TODO#//
-    //DO The ADC Conversion of the InfraRed here.
-
-    switch(TB2IV)
-    {
-    case TBIV_14: numInterruptA++; break; //TBIFG
-    case TBIV_2: numInterruptB++; break; //CCRIFG
-
-    }
-}
-
-#if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
 #pragma vector = TIMER2_B0_VECTOR
 __interrupt void TIMER2_B0_ISR(void)
-#elif defined(__GNUC__)
-void __attribute__ ((interrupt(TIMER2_B0_VECTOR))) TIMER2_B0_ISR (void)
-#else
-#error Compiler not supported!
-#endif
 {
-    //Now this is really interesting. In Up/Down Mode when an Interrupt Is set when CCR0 is reached, the TB2IV Vector doesnt get anything. It just stays empty whiel going in a B0 ISR
-    //The TBIFG interrupt when reaching 0 on the other hands goes into TIMER2_B1_ISR and creates an entry in TB2IV.
+    TB2CCTL0 &= ~CCIFG;
 
-    //#TODO#//
-    //Do the ADC Conversion of the Red LED here.
 
-    numInterruptB++;
+        ADCCTL0  &= ~ADCENC;
+        ADCMCTL0 |= ADCINCH_3;
+        ADCCTL0  |= ADCENC | ADCSC;
+
+        i = DCRED;
+
+        while(ADCCTL1 & ADCBUSY);
+
+        ADCCTL0  &= ~ADCENC;
+        ADCMCTL0 |= ADCINCH_10;
+        ADCCTL0  |= ADCENC | ADCSC;
+
+        i = ACRED;
+
+        while(ADCCTL1 & ADCBUSY);
+
+        DataReadyRed = 1;
 
 }
+
+
+#pragma vector = TIMER2_B1_VECTOR
+__interrupt void TIMER2_B1_ISR(void)
+{
+    TB2CTL &= ~TBIFG;
+
+    ADCCTL0  &= ~ADCENC;
+    ADCMCTL0 |= ADCINCH_3;
+    ADCCTL0  |= ADCENC | ADCSC;
+
+    i = DCINFRA;
+
+    while(ADCCTL1 & ADCBUSY);
+
+    ADCCTL0  &= ~ADCENC;
+    ADCMCTL0 |= ADCINCH_10;
+    ADCCTL0  |= ADCENC | ADCSC;
+
+    i = ACINFRA;
+
+    while(ADCCTL1 & ADCBUSY);
+
+    DataReadyInfraRed = 1;
+
+}
+
+#pragma vector = ADC_VECTOR
+__interrupt void ADC_ISR(void)
+{
+
+    switch(ADCIV)
+    {
+    case ADCIV_ADCIFG:
+        ADCValue[i] = ADCMEM0;
+        break;
+    default: break;
+    }
+
+}
+
 
 void InitLCDPins(void)
 {
