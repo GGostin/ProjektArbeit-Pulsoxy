@@ -201,6 +201,7 @@ void writeStringToLCD(const char *string);
 void initLCD();
 void clearLCD();
 void clearBank(unsigned char bank);
+void writeBattery(const int i);
 
 
 #endif /*PCD8544_H_*/

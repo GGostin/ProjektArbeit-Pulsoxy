@@ -1,7 +1,6 @@
 
 #include <msp430.h>
 #include "PCD8544.h"
-#include <stdio.h>
 
 #define LCD5110_SCLK_PIN            BIT5
 #define LCD5110_DN_PIN              BIT7
@@ -40,9 +39,6 @@ void main(void) {
     *
     */
 
-
-
-
     //Configuration for ADC Pin start on DC for RED (A3, P1.3)
     //Later each ADC Pin (A1, A3, A10, A11) is configured and triggered manually
 
@@ -51,11 +47,13 @@ void main(void) {
     P5SEL0 |= BIT2 | BIT3;
     P5SEL1 |= BIT2 | BIT3;
 
-    ADCCTL0 &= ~ADCENC;
-    ADCCTL0 |= ADCON;
-    ADCCTL1 = 0;
+    ADCCTL0  &= ~ADCENC;
+    ADCCTL0  |= ADCON;    //ADC-Core on
+    ADCCTL1  |= ADCSHP;   //This just makes it so when you start the conversion it stops eventually.
+    ADCCTL2  &= ~ADCRES;  //Reset Bit Conversion
+    ADCCTL2  |= ADCRES_2; //12 Bit Conversion
     ADCMCTL0 |= ADCINCH_3; // Channel A3
-    //ADCIE |= ADCIE0;
+    ADCIE |= ADCIE0;
 
     InitLCDPins();
 
@@ -78,8 +76,8 @@ void main(void) {
     TB2CCTL2 |= OUTMOD_6;    //TBCCR2 reset/set
     TB2CCR2  = 695-1;         //0.890 ms - 1.11 ms
     TB2CTL   |= TBSSEL_2 | MC_3 |TBCLR; // SMCLK, Up-Down-Mode, Interrupt Enable on Max Value and Zero
-    //TB2CTL   |= TBIE;
-    //TB2CCTL0 |= CCIE; //Enable Interrupt when CCR0 is reached.
+    TB2CTL   |= TBIE;
+    TB2CCTL0 |= CCIE; //Enable Interrupt when CCR0 is reached.
 
     PM5CTL0 &= ~LOCKLPM5; //Without this the pins won't be configured in Hardware.
     TB2CTL &= ~TBIFG;
@@ -105,13 +103,7 @@ void main(void) {
 
     while(1)
     {
-        ADCCTL0  &= ~ADCENC;
-        ADCMCTL0 |= ADCINCH_3;
-        ADCCTL0  |= ADCENC | ADCSC;
 
-        while(ADCCTL1 & ADCBUSY);
-
-        numInterruptA = 5;
     }
 
 
@@ -121,7 +113,7 @@ void main(void) {
 #pragma vector = TIMER2_B0_VECTOR
 __interrupt void TIMER2_B0_ISR(void)
 {
-    TB2CCTL0 &= ~CCIFG;
+        TB2CCTL0 &= ~CCIFG;
 
 
         ADCCTL0  &= ~ADCENC;
@@ -130,7 +122,9 @@ __interrupt void TIMER2_B0_ISR(void)
 
         i = DCRED;
 
+
         while(ADCCTL1 & ADCBUSY);
+        ADCValue[DCRED] = ADCMEM0;
 
         ADCCTL0  &= ~ADCENC;
         ADCMCTL0 |= ADCINCH_10;
@@ -138,10 +132,11 @@ __interrupt void TIMER2_B0_ISR(void)
 
         i = ACRED;
 
+
         while(ADCCTL1 & ADCBUSY);
+        ADCValue[ACRED] = ADCMEM0;
 
         DataReadyRed = 1;
-
 }
 
 
@@ -154,20 +149,20 @@ __interrupt void TIMER2_B1_ISR(void)
     ADCMCTL0 |= ADCINCH_3;
     ADCCTL0  |= ADCENC | ADCSC;
 
-    i = DCINFRA;
+    //i = DCINFRA;
 
     while(ADCCTL1 & ADCBUSY);
+    ADCValue[DCINFRA] = ADCMEM0;
 
     ADCCTL0  &= ~ADCENC;
     ADCMCTL0 |= ADCINCH_10;
     ADCCTL0  |= ADCENC | ADCSC;
 
-    i = ACINFRA;
-
+    //i = ACINFRA;
     while(ADCCTL1 & ADCBUSY);
+    ADCValue[ACINFRA] = ADCMEM0;
 
     DataReadyInfraRed = 1;
-
 }
 
 #pragma vector = ADC_VECTOR
