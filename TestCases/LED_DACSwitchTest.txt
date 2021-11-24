@@ -2,7 +2,7 @@
 
 unsigned int DAC_data = 0;
 
-int testmain(void)
+int TestDACSwitch(void)
 {
     WDTCTL = WDTPW + WDTHOLD;                 // Stop watch dog timer
 

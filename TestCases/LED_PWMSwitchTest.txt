@@ -1,6 +1,6 @@
 #include <msp430.h>
 
-int main(void)
+int TestPWMSwitch(void)
 {
 	
 	 WDTCTL = WDTPW | WDTHOLD;                  // Stop WDT
@@ -24,14 +24,14 @@ int main(void)
 	//P 6.3 | 6.4
 	
 	P6DIR |= BIT3 | BIT4;
-	P6SEl0 |= BIT3| BIT4;
+	P6SEL0 |= BIT3| BIT4;
 	
 	TB3CCR0 = 6;
 	TB3CCTL4 |= OUTMOD_7;
 	TB3CCTL5 |= OUTMOD_7;
-	TBCCR4   = 1;
-	TBCCR5   = 1;
-	TB3CTL   |= TBSSEL_SMCLK | MC__UP | TBCLR; //Up-Mode 1 MHz
+	TB3CCR4   = 1;
+	TB3CCR5   = 1;
+	TB3CTL   |= TBSSEL__SMCLK  | MC__UP | TBCLR; //Up-Mode 1 MHz
 	
 	PM5CTL0 &= ~LOCKLPM5;
 	
@@ -39,8 +39,8 @@ int main(void)
 	while(1)
 	{
 		TB3CTL &= ~MC_0;
-		TBCCR4 = (TBCCR4 % 6) +1;
-		TBCCR5 = (TBCCR5 % 6) +1;
+		TB3CCR4 = (TB3CCR4 % 6) +1;
+		TB3CCR5 = (TB3CCR5 % 6) +1;
 		TB3CTL |= MC__UP;
 		
 		__delay_cycles(3000000);
