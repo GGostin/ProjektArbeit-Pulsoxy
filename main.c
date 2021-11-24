@@ -1,6 +1,7 @@
 
 #include <msp430.h>
 #include "PCD8544.h"
+#include <stdio.h>
 
 #define LCD5110_SCLK_PIN            BIT5
 #define LCD5110_DN_PIN              BIT7
@@ -14,14 +15,19 @@
 #define LCD5110_DATA                1
 
 unsigned int i = 0;
+
 unsigned int DataReadyRed = 0;
 unsigned int DataReadyInfraRed = 0;
 
 typedef enum{ DCRED = 0, ACRED, DCINFRA, ACINFRA, DCOFF, ACOFF, TEMP, LIPO}ADCTYPE;
 
 unsigned int ADCValue[8];//
-unsigned int numInterruptA = 0;
-unsigned int numInterruptB = 0;
+unsigned int BeginStepA = 0;
+unsigned int BeginStepB = 0;
+unsigned int iA = 0;
+unsigned int iB = 0;
+unsigned int iISR = 0;
+
 
 void InitLCDPins(void);
 
@@ -38,6 +44,9 @@ void main(void) {
     *
     *
     */
+    //Test LED P 1.0
+    P1OUT &= ~BIT0;
+    P1DIR |= BIT0;
 
     //Configuration for ADC Pin start on DC for RED (A3, P1.3)
     //Later each ADC Pin (A1, A3, A10, A11) is configured and triggered manually
@@ -75,16 +84,13 @@ void main(void) {
     TB2CCR1  = 86-1;         //0..110us , 1.89ms ... 2ms
     TB2CCTL2 |= OUTMOD_6;    //TBCCR2 reset/set
     TB2CCR2  = 695-1;         //0.890 ms - 1.11 ms
-    TB2CTL   |= TBSSEL_2 | MC_3 |TBCLR; // SMCLK, Up-Down-Mode, Interrupt Enable on Max Value and Zero
     TB2CTL   |= TBIE;
+    TB2CTL   |= TBSSEL_2 | MC_3 |TBCLR; // SMCLK, Up-Down-Mode, Interrupt Enable on Max Value and Zero
     TB2CCTL0 |= CCIE; //Enable Interrupt when CCR0 is reached.
 
     PM5CTL0 &= ~LOCKLPM5; //Without this the pins won't be configured in Hardware.
     TB2CTL &= ~TBIFG;
     TB2CCTL0 &= ~CCIFG;
-
-    __bis_SR_register(GIE);
-
 
     setAddr(8,0);
     writeStringToLCD("SPO2");
@@ -101,10 +107,66 @@ void main(void) {
     setAddr(38,5);
     writeBattery(BATTERY_FULL);
 
+
+    //start here with the timer
+
     while(1)
     {
+        __bis_SR_register(LPM0_bits | GIE);
+
+
+        //Do Everything in main
+        if(BeginStepA)
+        {
+            i = DCRED;
+            ADCCTL0  &= ~ADCENC;
+            ADCMCTL0 |= ADCINCH_3;
+            ADCCTL0  |= ADCENC | ADCSC;
+
+            __bis_SR_register(LPM0_bits);
+
+            i = ACRED;
+            ADCCTL0  &= ~ADCENC;
+            ADCMCTL0 |= ADCINCH_10;
+            ADCCTL0  |= ADCENC | ADCSC;
+
+
+            __bis_SR_register(LPM0_bits);
+
+            BeginStepA = 0;
+
+        }
+        else if(BeginStepB)
+        {
+
+            i = DCINFRA;
+            ADCCTL0  &= ~ADCENC;
+            ADCMCTL0 |= ADCINCH_3;
+            ADCCTL0  |= ADCENC | ADCSC;
+
+
+            __bis_SR_register(LPM0_bits);
+
+            i = ACINFRA;
+            ADCCTL0  &= ~ADCENC;
+            ADCMCTL0 |= ADCINCH_10;
+            ADCCTL0  |= ADCENC | ADCSC;
+
+
+            __bis_SR_register(LPM0_bits);
+
+
+            if(iB == 15000)
+            {
+                printf("Hello World!");
+            }
+
+            BeginStepB = 0;
+        }
+
 
     }
+
 
 
 } // eof main
@@ -114,29 +176,10 @@ void main(void) {
 __interrupt void TIMER2_B0_ISR(void)
 {
         TB2CCTL0 &= ~CCIFG;
-
-
-        ADCCTL0  &= ~ADCENC;
-        ADCMCTL0 |= ADCINCH_3;
-        ADCCTL0  |= ADCENC | ADCSC;
-
-        i = DCRED;
-
-
-        while(ADCCTL1 & ADCBUSY);
-        ADCValue[DCRED] = ADCMEM0;
-
-        ADCCTL0  &= ~ADCENC;
-        ADCMCTL0 |= ADCINCH_10;
-        ADCCTL0  |= ADCENC | ADCSC;
-
-        i = ACRED;
-
-
-        while(ADCCTL1 & ADCBUSY);
-        ADCValue[ACRED] = ADCMEM0;
-
-        DataReadyRed = 1;
+        BeginStepA = 1;
+        iA++;
+        P1OUT |= BIT0;
+        __bic_SR_register_on_exit(LPM0_bits);
 }
 
 
@@ -144,25 +187,10 @@ __interrupt void TIMER2_B0_ISR(void)
 __interrupt void TIMER2_B1_ISR(void)
 {
     TB2CTL &= ~TBIFG;
-
-    ADCCTL0  &= ~ADCENC;
-    ADCMCTL0 |= ADCINCH_3;
-    ADCCTL0  |= ADCENC | ADCSC;
-
-    //i = DCINFRA;
-
-    while(ADCCTL1 & ADCBUSY);
-    ADCValue[DCINFRA] = ADCMEM0;
-
-    ADCCTL0  &= ~ADCENC;
-    ADCMCTL0 |= ADCINCH_10;
-    ADCCTL0  |= ADCENC | ADCSC;
-
-    //i = ACINFRA;
-    while(ADCCTL1 & ADCBUSY);
-    ADCValue[ACINFRA] = ADCMEM0;
-
-    DataReadyInfraRed = 1;
+    BeginStepB = 1;
+    iB++;
+    P1OUT |= BIT0;
+    __bic_SR_register_on_exit(LPM0_bits);
 }
 
 #pragma vector = ADC_VECTOR
@@ -173,9 +201,12 @@ __interrupt void ADC_ISR(void)
     {
     case ADCIV_ADCIFG:
         ADCValue[i] = ADCMEM0;
+        iISR++;
+        P1OUT &= ~BIT0;
         break;
     default: break;
     }
+    _bis_SR_register_on_exit(LPM0_bits);
 
 }
 
