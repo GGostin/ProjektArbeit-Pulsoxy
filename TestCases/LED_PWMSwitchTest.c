@@ -1,0 +1,51 @@
+#include <msp430.h>
+
+int main(void)
+{
+	
+	 WDTCTL = WDTPW | WDTHOLD;                  // Stop WDT
+	 
+	 //Two timers to start switch the LEDs
+	 //P 5.0, 5.1
+	 
+	 
+	P5DIR |= BIT0 | BIT1;
+    P5SEL0 |= BIT0 | BIT1;
+
+    TB2CCR0  = 781-1;          //Every 1 ms  the LED is already on for 110 us and will continue for another 110 us
+    TB2CCTL1 |= OUTMOD_2;    //TB2CCR1 toggle/set
+    TB2CCR1  = 86-1;         //0..110us , 1.89ms ... 2ms
+    TB2CCTL2 |= OUTMOD_6;    //TBCCR2 reset/set
+    TB2CCR2  = 695-1;         //0.890 ms - 1.11 ms
+    TB2CTL   |= TBSSEL_2 | MC_3 |TBCLR ; // SMCLK, Up-Down-Mode;
+	
+	
+	//Two PWM for Intensity 
+	//P 6.3 | 6.4
+	
+	P6DIR |= BIT3 | BIT4;
+	P6SEl0 |= BIT3| BIT4;
+	
+	TB3CCR0 = 6;
+	TB3CCTL4 |= OUTMOD_7;
+	TB3CCTL5 |= OUTMOD_7;
+	TBCCR4   = 1;
+	TBCCR5   = 1;
+	TB3CTL   |= TBSSEL_SMCLK | MC__UP | TBCLR; //Up-Mode 1 MHz
+	
+	PM5CTL0 &= ~LOCKLPM5;
+	
+	 
+	while(1)
+	{
+		TB3CTL &= ~MC_0;
+		TBCCR4 = (TBCCR4 % 6) +1;
+		TBCCR5 = (TBCCR5 % 6) +1;
+		TB3CTL |= MC__UP;
+		
+		__delay_cycles(3000000);
+		
+	}		
+	
+	 
+}
