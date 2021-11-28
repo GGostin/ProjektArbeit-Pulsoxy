@@ -14,8 +14,8 @@
 #define LCD5110_DATA                1
 
 unsigned int i = 0;
-unsigned int DataReadyRed = 0;
-unsigned int DataReadyInfraRed = 0;
+unsigned int StartStepA = 0;
+unsigned int StartStepB = 0;
 
 typedef enum{ DCRED = 0, ACRED, DCINFRA, ACINFRA, DCOFF, ACOFF, TEMP, LIPO}ADCTYPE;
 
@@ -24,6 +24,7 @@ unsigned int numInterruptA = 0;
 unsigned int numInterruptB = 0;
 
 void InitLCDPins(void);
+void GetDiodeADC(int i);
 
 void main(void) {
 
@@ -53,7 +54,7 @@ void main(void) {
     ADCCTL2  &= ~ADCRES;  //Reset Bit Conversion
     ADCCTL2  |= ADCRES_2; //12 Bit Conversion
     ADCMCTL0 |= ADCINCH_3; // Channel A3
-    ADCIE |= ADCIE0;
+    //ADCIE |= ADCIE0;
 
     InitLCDPins();
 
@@ -70,21 +71,32 @@ void main(void) {
     P5DIR |= BIT0 | BIT1;
     P5SEL0 |= BIT0 | BIT1;
 
-    TB2CCR0  = 781-1;          //Every 1 ms  the LED is already on for 110 us and will continue for another 110 us
+    TB2CCR0  = 1000-1;          //Every 1 ms  the LED is already on for 110 us and will continue for another 110 us
     TB2CCTL1 |= OUTMOD_2;    //TB2CCR1 toggle/set
-    TB2CCR1  = 86-1;         //0..110us , 1.89ms ... 2ms
+    TB2CCR1  = 110-1;         //0..110us , 1.89ms ... 2ms
     TB2CCTL2 |= OUTMOD_6;    //TBCCR2 reset/set
-    TB2CCR2  = 695-1;         //0.890 ms - 1.11 ms
+    TB2CCR2  = 890-1;         //0.890 ms - 1.11 ms
     TB2CTL   |= TBSSEL_2 | MC_3 |TBCLR; // SMCLK, Up-Down-Mode, Interrupt Enable on Max Value and Zero
     TB2CTL   |= TBIE;
     TB2CCTL0 |= CCIE; //Enable Interrupt when CCR0 is reached.
 
+    //Two PWM for Intensity
+    //P6.3 and P6.4
+
+    P6DIR  |= BIT3 | BIT4;
+    P6SEL0 |= BIT3 | BIT4;
+
+    TB3CCR0 = 7;
+    TB3CCTL4 |= OUTMOD_7;
+    TB3CCTL5 |= OUTMOD_7;
+    TB3CCR4   = 3;
+    TB3CCR5   = 3;
+    TB3CTL   |= TBSSEL__SMCLK  | MC__UP | TBCLR; //Up-Mode 1 MHz
+
+
     PM5CTL0 &= ~LOCKLPM5; //Without this the pins won't be configured in Hardware.
     TB2CTL &= ~TBIFG;
     TB2CCTL0 &= ~CCIFG;
-
-    __bis_SR_register(GIE);
-
 
     setAddr(8,0);
     writeStringToLCD("SPO2");
@@ -101,8 +113,18 @@ void main(void) {
     setAddr(38,5);
     writeBattery(BATTERY_FULL);
 
+    __bis_SR_register(GIE);
+
     while(1)
     {
+        if(StartStepA)
+        {
+            GetDiodeADC(DCRED);
+        }
+        else if(StartStepB)
+        {
+            GetDiodeADC(DCINFRA);
+        }
 
     }
 
@@ -113,30 +135,8 @@ void main(void) {
 #pragma vector = TIMER2_B0_VECTOR
 __interrupt void TIMER2_B0_ISR(void)
 {
-        TB2CCTL0 &= ~CCIFG;
-
-
-        ADCCTL0  &= ~ADCENC;
-        ADCMCTL0 |= ADCINCH_3;
-        ADCCTL0  |= ADCENC | ADCSC;
-
-        i = DCRED;
-
-
-        while(ADCCTL1 & ADCBUSY);
-        ADCValue[DCRED] = ADCMEM0;
-
-        ADCCTL0  &= ~ADCENC;
-        ADCMCTL0 |= ADCINCH_10;
-        ADCCTL0  |= ADCENC | ADCSC;
-
-        i = ACRED;
-
-
-        while(ADCCTL1 & ADCBUSY);
-        ADCValue[ACRED] = ADCMEM0;
-
-        DataReadyRed = 1;
+    TB2CCTL0 &= ~CCIFG;
+    StartStepA = 1;
 }
 
 
@@ -144,41 +144,33 @@ __interrupt void TIMER2_B0_ISR(void)
 __interrupt void TIMER2_B1_ISR(void)
 {
     TB2CTL &= ~TBIFG;
+    StartStepB = 1;
+}
 
+
+
+//Takes around 80 (80 us) for the entire function
+//Using Active Polling because the combination of Low Power Mode and Interrupt  is working properly
+//
+void GetDiodeADC(int i)
+{
     ADCCTL0  &= ~ADCENC;
     ADCMCTL0 |= ADCINCH_3;
     ADCCTL0  |= ADCENC | ADCSC;
 
-    //i = DCINFRA;
-
     while(ADCCTL1 & ADCBUSY);
-    ADCValue[DCINFRA] = ADCMEM0;
+    ADCValue[i] = ADCMEM0;
 
     ADCCTL0  &= ~ADCENC;
     ADCMCTL0 |= ADCINCH_10;
     ADCCTL0  |= ADCENC | ADCSC;
 
-    //i = ACINFRA;
+    i= i+1;
+
     while(ADCCTL1 & ADCBUSY);
-    ADCValue[ACINFRA] = ADCMEM0;
-
-    DataReadyInfraRed = 1;
-}
-
-#pragma vector = ADC_VECTOR
-__interrupt void ADC_ISR(void)
-{
-
-    switch(ADCIV)
-    {
-    case ADCIV_ADCIFG:
-        ADCValue[i] = ADCMEM0;
-        break;
-    default: break;
-    }
+    ADCValue[i] = ADCMEM0;
 
 }
-
 
 void InitLCDPins(void)
 {
