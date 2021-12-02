@@ -2,6 +2,7 @@
 #include <msp430.h>
 #include "PCD8544.h"
 
+//LDC PIN DEFINES
 #define LCD5110_SCLK_PIN            BIT5
 #define LCD5110_DN_PIN              BIT7
 #define LCD5110_SCE_PIN             BIT0
@@ -13,18 +14,44 @@
 #define LCD5110_COMMAND             0
 #define LCD5110_DATA                1
 
-unsigned int i = 0;
-unsigned int StartStepA = 0;
-unsigned int StartStepB = 0;
+//Defines for normal sequence
+#define UPDATELCD 5;
+#define FULLBATT 4
+#define HALFBATT 3
+#define MINBATT  2
+#define CRITBATT 1
 
 typedef enum{ DCRED = 0, ACRED, DCINFRA, ACINFRA, DCOFF, ACOFF, TEMP, LIPO}ADCTYPE;
-
 unsigned int ADCValue[8];//
-unsigned int numInterruptA = 0;
-unsigned int numInterruptB = 0;
 
+unsigned int StartStepA   = 0;
+unsigned int StartStepB   = 0;
+
+//Set All Pins to Configure the LDC
 void InitLCDPins(void);
+
+//First Takes the AC Part, afterwards the DC Value.
+//i is used for the three Cases, Red, InfraRed, Off
 void GetDiodeADC(int i);
+
+//Take the ADC Value of the NTC and converts it to the equivalent Temperature.
+//Used for slight Correction of LEDS;
+void GetTemp(void);
+
+//Take the ADV Value of the LiPo Battery.
+//Checks for it to be between 3.7 to 3.0 ??
+//Sets Flags to Change the Battery Sign on the LCD
+void GetBatteryVoltage(void);
+
+
+//Checks the Threshold for either red or infrared.
+//Tries to keep it in a range by changing the PWM that controls the Intensity
+void CheckLEDIntensity(int i);
+
+int CalculateSP02(void);
+int CaluclateRPM(void);
+
+
 
 void main(void) {
 
@@ -39,6 +66,30 @@ void main(void) {
     *
     *
     */
+    //Variables used for the normal sequence
+    unsigned int i = 0;
+    unsigned int samplesHBeat = 0;
+    unsigned int takeBattery  = 0;
+    unsigned int updLCD    = 0;
+
+    unsigned int hTresholdRed = 0xFFFF; //Initial Value 0xFFFF
+    unsigned int lTresholdRed = 0;
+    unsigned int hTresholdInfra = 0xFFFF;
+    unsigned int lTresholdInfra = 0;
+
+    //Variables for Processing ADC Values;
+    unsigned long rms_AC_Red   = 0;
+    unsigned long mean_DC_Red   = 0;
+    unsigned long rms_AC_Infra = 0;
+    unsigned long mean_DC_Infra = 0;
+
+    unsigned int maxACRed   = 0;
+    unsigned int minACRed   = 0;
+    unsigned int maxDCInfra = 0;
+    unsigned int minDCInfra = 0;
+
+    unsigned int rpm = 0;
+    unsigned int sp02 = 0;
 
     //Configuration for ADC Pin start on DC for RED (A3, P1.3)
     //Later each ADC Pin (A1, A3, A10, A11) is configured and triggered manually
@@ -86,11 +137,11 @@ void main(void) {
     P6DIR  |= BIT3 | BIT4;
     P6SEL0 |= BIT3 | BIT4;
 
-    TB3CCR0 = 7;
+    TB3CCR0 = 30;
     TB3CCTL4 |= OUTMOD_7;
     TB3CCTL5 |= OUTMOD_7;
-    TB3CCR4   = 3;
-    TB3CCR5   = 3;
+    TB3CCR4   = 15;
+    TB3CCR5   = 15;
     TB3CTL   |= TBSSEL__SMCLK  | MC__UP | TBCLR; //Up-Mode 1 MHz
 
 
@@ -120,10 +171,18 @@ void main(void) {
         if(StartStepA)
         {
             GetDiodeADC(DCRED);
+
+            //Take RMS of AC and Mean of
+            rms_AC_Red = (ADCValue[ACRED]*ADCValue[ACRED]) >> 9; //Div by 9 makes it easier
+            mean_DC_Red = ADCValue[DCRED] >> 9;
+
         }
         else if(StartStepB)
         {
             GetDiodeADC(DCINFRA);
+            rms_AC_Infra = (ADCValue[ACINFRA]*ADCValue[ACINFRA]) >> 9; //Div by 9 makes it easier
+            mean_DC_Infra = ADCValue[DCINFRA] >> 9;
+
         }
 
     }
@@ -171,6 +230,40 @@ void GetDiodeADC(int i)
     ADCValue[i] = ADCMEM0;
 
 }
+
+void GetTemp(void)
+{
+
+}
+void GetBatteryVoltage(void)
+{
+
+}
+
+void CheckLEDIntensity(int i, int* hTh, int* lTh, )
+{
+    //stop the timer. Adjust the
+    if(i >= *hTh)
+    {
+
+    }
+    else if(i <= *lTh)
+    {
+
+    }
+
+}
+
+int CalculateSP02(void)
+{
+    return 0;
+}
+
+int CaluclateRPM(void)
+{
+    return 0;
+}
+
 
 void InitLCDPins(void)
 {
