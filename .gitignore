@@ -15,3 +15,4 @@ Debug/makefile
 *.cmd
 *.ccxml
 targetConfigs/readme.txt
+Release/makefile
