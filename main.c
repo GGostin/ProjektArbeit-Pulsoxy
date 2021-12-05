@@ -27,12 +27,36 @@ unsigned int ADCValue[8];//
 unsigned int StartStepA   = 0;
 unsigned int StartStepB   = 0;
 
+unsigned int HTresholdRed = 0xFFFF; //Initial Value 0xFFFF
+unsigned int LTresholdRed = 0;
+unsigned int HTresholdInfra = 0xFFFF;
+unsigned int LTresholdInfra = 0;
+
+//Variables for Processing ADC Values;
+unsigned long rms_AC_Red   = 0;
+unsigned long mean_DC_Red   = 0;
+unsigned long rms_AC_Infra = 0;
+unsigned long mean_DC_Infra = 0;
+unsigned int MeanTemp = 0;
+unsigned int VoltageLevel = 0;
+
+unsigned int maxIntensity = 10;
+
+unsigned int MaxACRed   = 0;
+unsigned int MinACRed   = 0;
+
+unsigned int LCDBattFlag = 0;
+
+unsigned int BPM = 0;
+unsigned int MeanSPO2 = 0;
+
+
 //Set All Pins to Configure the LDC
 void InitLCDPins(void);
 
 //First Takes the AC Part, afterwards the DC Value.
 //i is used for the three Cases, Red, InfraRed, Off
-void GetDiodeADC(int i);
+void GetDiodeADC(unsigned int chann);
 
 //Take the ADC Value of the NTC and converts it to the equivalent Temperature.
 //Used for slight Correction of LEDS;
@@ -46,7 +70,7 @@ void GetBatteryVoltage(void);
 
 //Checks the Threshold for either red or infrared.
 //Tries to keep it in a range by changing the PWM that controls the Intensity
-void CheckLEDIntensity(int i);
+void CheckLEDIntensity(void);
 
 int CalculateSP02(void);
 int CaluclateRPM(void);
@@ -72,24 +96,9 @@ void main(void) {
     unsigned int takeBattery  = 0;
     unsigned int updLCD    = 0;
 
-    unsigned int hTresholdRed = 0xFFFF; //Initial Value 0xFFFF
-    unsigned int lTresholdRed = 0;
-    unsigned int hTresholdInfra = 0xFFFF;
-    unsigned int lTresholdInfra = 0;
 
-    //Variables for Processing ADC Values;
-    unsigned long rms_AC_Red   = 0;
-    unsigned long mean_DC_Red   = 0;
-    unsigned long rms_AC_Infra = 0;
-    unsigned long mean_DC_Infra = 0;
 
-    unsigned int maxACRed   = 0;
-    unsigned int minACRed   = 0;
-    unsigned int maxDCInfra = 0;
-    unsigned int minDCInfra = 0;
 
-    unsigned int rpm = 0;
-    unsigned int sp02 = 0;
 
     //Configuration for ADC Pin start on DC for RED (A3, P1.3)
     //Later each ADC Pin (A1, A3, A10, A11) is configured and triggered manually
@@ -137,11 +146,12 @@ void main(void) {
     P6DIR  |= BIT3 | BIT4;
     P6SEL0 |= BIT3 | BIT4;
 
-    TB3CCR0 = 30;
+
+    TB3CCR0 = maxIntensity;
     TB3CCTL4 |= OUTMOD_7;
     TB3CCTL5 |= OUTMOD_7;
-    TB3CCR4   = 15;
-    TB3CCR5   = 15;
+    TB3CCR4   = 4;
+    TB3CCR5   = 4;
     TB3CTL   |= TBSSEL__SMCLK  | MC__UP | TBCLR; //Up-Mode 1 MHz
 
 
@@ -176,12 +186,19 @@ void main(void) {
             rms_AC_Red = (ADCValue[ACRED]*ADCValue[ACRED]) >> 9; //Div by 9 makes it easier
             mean_DC_Red = ADCValue[DCRED] >> 9;
 
+            //Wait a bit more (like 20us) to start the ADC for both Diodes off
+            __delay_cycles(20);
+
+            GetDiodeADC(DCOFF);
+
+
+
         }
         else if(StartStepB)
         {
             GetDiodeADC(DCINFRA);
-            rms_AC_Infra = (ADCValue[ACINFRA]*ADCValue[ACINFRA]) >> 9; //Div by 9 makes it easier
-            mean_DC_Infra = ADCValue[DCINFRA] >> 9;
+            rms_AC_Infra += (ADCValue[ACINFRA]*ADCValue[ACINFRA]) >> 9; //Div by 9 makes it easier
+            mean_DC_Infra += ADCValue[DCINFRA] >> 9;
 
         }
 
@@ -209,49 +226,126 @@ __interrupt void TIMER2_B1_ISR(void)
 
 
 //Takes around 80 (80 us) for the entire function
-//Using Active Polling because the combination of Low Power Mode and Interrupt  is working properly
-//
-void GetDiodeADC(int i)
+//Using Active Polling because the combination of Low Power Mode and Interrupt  isn't working properly
+void GetDiodeADC(unsigned int chann)
 {
     ADCCTL0  &= ~ADCENC;
     ADCMCTL0 |= ADCINCH_3;
     ADCCTL0  |= ADCENC | ADCSC;
 
     while(ADCCTL1 & ADCBUSY);
-    ADCValue[i] = ADCMEM0;
+    ADCValue[chann] = ADCMEM0;
 
     ADCCTL0  &= ~ADCENC;
     ADCMCTL0 |= ADCINCH_10;
     ADCCTL0  |= ADCENC | ADCSC;
 
-    i= i+1;
+    chann= chann+1;
 
     while(ADCCTL1 & ADCBUSY);
-    ADCValue[i] = ADCMEM0;
+    ADCValue[chann] = ADCMEM0;
 
 }
 
 void GetTemp(void)
 {
+    ADCCTL0  &= ~ADCENC;
+    ADCMCTL0 |= ADCINCH_11;
+    ADCCTL0  |= ADCENC | ADCSC;
 
+    while(ADCCTL1 & ADCBUSY);
+    ADCValue[TEMP] = ADCMEM0;
+
+    MeanTemp =+ (ADCValue[Temp] >> 9);
 }
 void GetBatteryVoltage(void)
 {
+    ADCCTL0  &= ~ADCENC;
+    ADCMCTL0 |= ADCINCH_1;
+    ADCCTL0  |= ADCENC | ADCSC;
+
+    while(ADCCTL1 & ADCBUSY);
+
+    VoltageLevel = ADCMEM0;
+
+    //Based on the battery level, Change a Flag for The LCD
+
+    if(VoltageLevel >= 0xF000)
+    {
+        LCDBattFlag = 4; // Full
+    }
+    else if(VoltageLevel >= 0x8000 && VoltageLevel < 0xF000)
+    {
+        LCDBattFlag = 3; // One line missing (~ 75%)
+    }
+    else if(VoltageLevel >= 0x4000 && VoltageLevel < 0x8000)
+    {
+        LCDBattFlag = 2; // Two lines missing (~ 50%)
+    }
+    else if(Voltagelevel >= 0x2000 && VoltageLevel < 0x4000)
+    {
+        LCDBattFlag = 1; // Three lines missing (~ 25$)
+    }
+    else
+    {
+        LCDBattFlag ^= BIT0; // Blinking
+    }
+
 
 }
 
-void CheckLEDIntensity(int i, int* hTh, int* lTh, )
+
+//We will maybe every 100 ms Check for the Intensity
+//Maybe even more. Its need to be evaluated during testing.
+void CheckLEDIntensity(void)
 {
-    //stop the timer. Adjust the
-    if(i >= *hTh)
+    //Disable both PWM
+    TB3CTL &= ~MC_0;
+
+    if(ADCValue[ACRed] < LTresholdRed)
     {
-
+        TB3CCR4++;
+        if(TB3CCR4 >= maxIntensity)
+        {
+            TB3CCR4 = maxIntensity;
+        }
     }
-    else if(i <= *lTh)
+    else if(ADCValue[ACRED] < HTresholdRed)
     {
-
+        TB3CCR4--
+        if(TB3CCR <= 1)
+        {
+            TB3CCR4 = 1;
+        }
     }
 
+    if(ADCValue[ACRed] < LTresholdInfra)
+    {
+        TB3CCR5++;
+        if(TB3CCR5 >= maxIntensity)
+        {
+            TB3CCR5 = maxIntensity;
+        }
+    }
+    else if(ADCValue[ACRED] < HTresholdInfra)
+    {
+        TB3CCR5--
+        if(TB3CCR5 <= 1)
+        {
+            TB3CCR5 = 1;
+        }
+    }
+
+
+    //Based on the current Level the Threshold gets Adjusted
+    //These will be set during
+    LTresholdRed = 0;
+    HTresholdRed = 0;
+    LTresholdInfra = 0;
+    HTresholdInfra = 0;
+
+    //Dont Forget to start the timer again.
+    TB3CTL |= MC__UP;
 }
 
 int CalculateSP02(void)
@@ -360,4 +454,5 @@ void clearBank(unsigned char bank) {
     }
     setAddr(0, bank);
 }
+
 
