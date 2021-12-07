@@ -1,6 +1,7 @@
 
 #include <msp430.h>
 #include "PCD8544.h"
+#include <math.h>
 
 //LDC PIN DEFINES
 #define LCD5110_SCLK_PIN            BIT5
@@ -20,8 +21,6 @@
 #define HALFBATT 3
 #define MINBATT  2
 #define CRITBATT 1
-
-static int SP02[151] = [101 101 101 100 100 100 100 100 99  99  99  99  98  98  98  98  98  97  97  97  97  96  96  96  95  95  95  95  94  94  94  94  93  93  93  92  92  92  91  91  91  90  90  90  89  89  89  88  88  88  87  87  87  86  86  86  85  85  84  84  84  83  83  83  82  82  81  81  81  80  80  79  79  79  78  78  77  77  76  76  75  75  75  74  74  73  73  72  72  71  71  70  70  69  69  68  68  67  67  66  66  65  65  64  64  63  63  62  62  61  61  60  60  59  59  58  57  57  56  56  55  55  54  53  53  52  52  51  51  50  49  49  48  48  47  46  46  45  44  44  43  43  42  41  41  40  39  39  38  37  37];
 
 
 typedef enum{ DCRED = 0, ACRED, DCINFRA, ACINFRA, DCOFF, ACOFF, TEMP, LIPO}ADCTYPE;
@@ -50,8 +49,8 @@ unsigned int MinACRed   = 0;
 
 unsigned int LCDBattFlag = 0;
 
-unsigned int SP02Level = 0;
-unsigned int MeanSP02 = 0;
+unsigned int SPO2Level = 0;
+unsigned int MeanSPO2 = 0;
 
 
 //Set All Pins to Configure the LDC
@@ -192,6 +191,8 @@ void main(void) {
             //Wait a bit more (like 20us) to start the ADC for both Diodes off
             __delay_cycles(20);
 
+            GetTemp();
+
             GetDiodeADC(DCOFF);
 
 
@@ -205,8 +206,10 @@ void main(void) {
 
             i++;
 
-            if(i = 1000)
+            if(i == 1000)
             {
+                CalculateSP02();
+
 
                 //Send the Data via SPI.
             }
@@ -293,7 +296,7 @@ void GetBatteryVoltage(void)
     {
         LCDBattFlag = 2; // Two lines missing (~ 50%)
     }
-    else if(Voltagelevel >= 0x2000 && VoltageLevel < 0x4000)
+    else if(VoltageLevel >= 0x2000 && VoltageLevel < 0x4000)
     {
         LCDBattFlag = 1; // Three lines missing (~ 25$)
     }
@@ -329,7 +332,7 @@ void CheckLEDIntensity(void)
         }
     }
 
-    if(ADCValue[ACRed] < LTresholdInfra)
+    if(ADCValue[ACRED] < LTresholdInfra)
     {
         TB3CCR5++;
         if(TB3CCR5 >= maxIntensity)
@@ -361,21 +364,24 @@ void CheckLEDIntensity(void)
 int CalculateSP02(void)
 {
     unsigned int R;
+    //  Possibility 1
+    //  R = ((rms_AC_Red / mean_DC_Red)/(rms_AC_Infra/mean_DC_Infra) -0.5) *100; //We have to subtract 0.5 so that we can Access the Array
+    //  Possibiltiy 2
+        R = log(sqrt(rms_AC_Red))/log(sqrt(rms_AC_Infra)); //when DC_Red == DC_Infra
 
-    R = ((rms_AC_Red / mean_DC_Red)/(rms_AC_Infra/mean_DC_Infra) -0.5) *100; //We have to subtract 0.5 so that we can Access the Array
+    SPO2Level =  1;
+    //SP02Level = SP02[R];
 
-    SP02Level = SP02[R];
+    MeanSPO2 += SPO2Level >> 2; //We take an Average of 4 Values to Calculate the Sp02 Level
 
-    MeanSP02 += SP02Level >> 2; //We take an Average of 4 Values to Calculate the Sp02 Level
-
-    return MeanSP02;
+    return MeanSPO2;
 }
 
 int CaluclateRPM(int samples)
 {
-
-    BPM = (500* 60)/(Samples/4);
-
+    unsigned int bpm;
+    bpm = (500* 60)/(samples/4);
+    return bpm;
 }
 
 
