@@ -89,6 +89,7 @@ void GetBatteryVoltage(unsigned int* lcdBattFlag);
 //Tries to keep it in a range by changing the PWM that controls the Intensity
 int CheckLEDIntensity(int changeValues);
 
+void MinMaxDetection(MinMax* detect, unsigned int sample);
 void CalculateSP02(unsigned int* meanSPO2, unsigned long rms_AC_RED, unsigned long rms_AC_Infra);
 int CaluclateBPM(int samples);
 void LCDWriteStatusValues(unsigned int SPO2, unsigned int bpm, unsigned int battStatus);
@@ -123,11 +124,7 @@ void main(void) {
     infra.RmsAC = 0;
 
     unsigned int meanTemp = 0;
-    unsigned int voltageLevel = 0;
-
-    unsigned int LCDBattFlag = 0;
-
-    unsigned int SPO2Level = 0;
+    unsigned int lcdBattFlag = 0;
     unsigned int meanSPO2 = 0;
 
     //Configuration for ADC Pin start on DC for RED (A3, P1.3)
@@ -198,7 +195,11 @@ void main(void) {
     setAddr(38,5);
     writeBattery(BATTERY_FULL);
 
+    //Wait a second for everything to start
+    __delay_cycles(1000000);
+
     __bis_SR_register(GIE);
+
 
     while(1)
     {
@@ -222,12 +223,25 @@ void main(void) {
                 samplesHBeat++;
                 MinMaxDetection(&maxDetect, sampleAC);
 
+                if (i == 100)
+                {
+                    GetBatteryVoltage(&lcdBattFlag);
+                }
+
                 if(maxDetect.NumOfPeaks == 5)
                 {
                     bpm = CaluclateBPM(samplesHBeat);
                     samplesHBeat = 0;
                     maxDetect.NumOfPeaks = 0;
                 }
+
+                if(i == 1000)
+                {
+                    i = 0;
+                    updLCD = 1;
+                    CalculateSP02(&meanSPO2, red.RmsAC, infra.RmsAC);
+                }
+
             }
             else
             {
@@ -253,13 +267,10 @@ void main(void) {
             infra.MeanDC += (long)sampleDC >> 8;
 
             i++;
-            if(i == 1000)
+            if(updLCD)
             {
-                CalculateSP02(&meanSPO2, red.RmsAC, infra.RmsAC);
-
-                LCDWriteStatusValues(meanSPO2, bpm, LCDBattFlag);
-                i= 0;
-                meanSPO2 = 0;
+                LCDWriteStatusValues(meanSPO2, bpm, lcdBattFlag);
+                updLCD = 0;
                 red.MeanDC  = 0;
                 red.RmsAC   = 0;
                 red.MeanDC  = 0;
@@ -441,7 +452,6 @@ int CheckLEDIntensity(int changeValues)
 
         if(changeValues)
         {
-
             TB3CCR5--;
             if(TB3CCR5 <= 1)
             {
@@ -532,6 +542,9 @@ void LCDWriteStatusValues(unsigned int SPO2, unsigned int bpm, unsigned int batt
     writeStringToLCD(spo2);
     setAddr(42,24);
     writeStringToLCD(sbpm);
+
+    setAddr(0,48);
+    writeBattery(battStatus);
 }
 
 void setAddr(unsigned char xAddr, unsigned char yAddr) {
