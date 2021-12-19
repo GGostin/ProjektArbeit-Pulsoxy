@@ -16,11 +16,17 @@
 #define LCD5110_DATA                1
 
 //Defines for normal sequence
-#define UPDATELCD 5;
-#define FULLBATT 4
-#define HALFBATT 3
-#define MINBATT  2
-#define CRITBATT 1
+#define UPDATELCD   5
+#define FULLBATT    4
+#define HALFBATT    3
+#define MINBATT     2
+#define CRITBATT    1
+
+#define DATAVALID   6
+#define DATAWAIT    7
+
+#define CHANGEINTENSITY 1
+#define KEEPINTENSITY   0
 
 
 typedef enum{ DCRED = 0, ACRED, DCINFRA, ACINFRA, DCOFF, ACOFF, TEMP, LIPO}ADCTYPE;
@@ -29,19 +35,15 @@ unsigned int ADCValue[8];//
 unsigned int StartStepA   = 0;
 unsigned int StartStepB   = 0;
 
-unsigned int MaxIntensity = 10;
-
-static unsigned int SamplesBPM = 250; //Per 1 sec we take roughly 250 samples of the red LED
-static unsigned int NumOfMaxTaken = 4;
-static unsigned int SPO2Taken = 2; //Right Shift
+static unsigned int MaxIntensity = 10;
 
 
+//Question is. Do both need to be changed?
+//I could argue that one is enough because the other will probably be around the same value
 static unsigned int HTresholdRed = 0xFFFF;
 static unsigned int LTresholdRed = 0;
 static unsigned int HTresholdInfra = 0xFFFF;
 static unsigned int LTresholdInfra = 0;
-
-
 
 
 typedef enum TagDirection
@@ -83,22 +85,20 @@ void GetTemp(unsigned int* meanTemp);
 //Sets Flags to Change the Battery Sign on the LCD
 void GetBatteryVoltage(unsigned int* lcdBattFlag);
 
-
 //Checks the Threshold for either red or infrared.
 //Tries to keep it in a range by changing the PWM that controls the Intensity
-void CheckLEDIntensity(void);
+int CheckLEDIntensity(int changeValues);
 
 void CalculateSP02(unsigned int* meanSPO2, unsigned long rms_AC_RED, unsigned long rms_AC_Infra);
 int CaluclateBPM(int samples);
-void LCDWriteStatusValues(unsigned int SP02, unsigned int bpm, unsigned int battStatus);
-
+void LCDWriteStatusValues(unsigned int SPO2, unsigned int bpm, unsigned int battStatus);
+void LCDWriteGraph(unsigned int sample, int row);
 
 void main(void) {
 
     WDTCTL = WDTPW | WDTHOLD;           // Stop watchdog timer
 
-    MinMax maxDetect;
-    memset( &maxDetect, 0, sizeof(maxDetect));
+    MinMax maxDetect = {0};
     maxDetect.Dir = Falling;
 
     unsigned int sampleDC = 0;
@@ -109,14 +109,11 @@ void main(void) {
     unsigned int takeBattery  = 0;
     unsigned int updLCD    = 0;
     unsigned int bpm =0;
-    unsigned int calcBPM = 0;
     unsigned int firstIterationOver = 0;
-    unsigned int maxCheck = 0;
-    unsigned int minCheck = 0;
-    unsigned int dataValid = 0;
+    unsigned int changeIntensity = CHANGEINTENSITY;
+    unsigned int iterIntensity = 0;
 
-    unsigned int maxACRed   = 0;
-    unsigned int minACRed   = 0;
+    int ret = 0;
 
     LEDValues red;
     red.MeanDC = 0;
@@ -160,11 +157,11 @@ void main(void) {
     P5DIR |= BIT0 | BIT1;
     P5SEL0 |= BIT0 | BIT1;
 
-    TB2CCR0  = 2000-1;          //Every 1 ms  the LED is already on for 110 us and will continue for another 110 us
+    TB2CCR0  = 2000-1;          //Every 2 ms  the LED is already on for 500 us and will continue for another 500 us
     TB2CCTL1 |= OUTMOD_2;    //TB2CCR1 toggle/set
-    TB2CCR1  = 500-1;         //0..110us , 1.89ms ... 2ms
+    TB2CCR1  = 500-1;         //0.500us , 3.5 ms ... 4ms
     TB2CCTL2 |= OUTMOD_6;    //TBCCR2 reset/set
-    TB2CCR2  = 1500-1;         //0.890 ms - 1.11 ms
+    TB2CCR2  = 1500-1;         //1.5 ms - 2.5 ms
     TB2CTL   |= TBSSEL_2 | MC_3 |TBCLR; // SMCLK, Up-Down-Mode, Interrupt Enable on Max Value and Zero
     TB2CTL   |= TBIE;
     TB2CCTL0 |= CCIE; //Enable Interrupt when CCR0 is reached.
@@ -218,9 +215,10 @@ void main(void) {
 
             GetTemp(&meanTemp);
 
-            if(!firstIterationOver && dataValid)
-            {
+            ret = CheckLEDIntensity(changeIntensity);
 
+            if(!firstIterationOver && ret == DATAVALID)
+            {
                 samplesHBeat++;
                 MinMaxDetection(&maxDetect, sampleAC);
 
@@ -231,6 +229,17 @@ void main(void) {
                     maxDetect.NumOfPeaks = 0;
                 }
             }
+            else
+            {
+                //We wait for like 100 ms and check again, this here is called every 2 ms so we wait 50 Cycles;
+                changeIntensity = KEEPINTENSITY;
+                iterIntensity++;
+                if(iterIntensity == 50)
+                {
+                    changeIntensity = CHANGEINTENSITY;
+                }
+            }
+            //Do we need this ??
             GetDiodeADC(DCOFF);
 
         }
@@ -250,6 +259,11 @@ void main(void) {
 
                 LCDWriteStatusValues(meanSPO2, bpm, LCDBattFlag);
                 i= 0;
+                meanSPO2 = 0;
+                red.MeanDC  = 0;
+                red.RmsAC   = 0;
+                red.MeanDC  = 0;
+                infra.RmsAC = 0;
                 //Send the Data via SPI.
             }
             firstIterationOver = 1;
@@ -273,8 +287,6 @@ __interrupt void TIMER2_B1_ISR(void)
     StartStepB = 1;
 }
 
-
-
 //Check the maximum
 void MinMaxDetection(MinMax* detect, unsigned int sample)
 {
@@ -296,9 +308,7 @@ void MinMaxDetection(MinMax* detect, unsigned int sample)
             detect->Dir = Rising;
         }
         *i = 0;
-
     }
-
 }
 
 
@@ -375,61 +385,85 @@ void GetBatteryVoltage(unsigned int* lcdBattFlag)
 //Maybe even more. Its need to be evaluated during testing.
 //
 //We need to differentiate when we pull out the finger. This will lead to a maximum, Minum
-void CheckLEDIntensity(void)
+int CheckLEDIntensity(int changeValues)
 {
+
+    int ret = DATAVALID;
     //Disable both PWM
-    TB3CTL &= ~MC_0;
+
+    if(changeValues)
+    {
+        TB3CTL &= ~MC_0;
+    }
 
     if(ADCValue[ACRED] < LTresholdRed)
     {
-        TB3CCR4++;
-        if(TB3CCR4 >= MaxIntensity)
+        ret = DATAWAIT;
+
+        if(changeValues)
         {
-            TB3CCR4 = MaxIntensity;
+            TB3CCR4++;
+            if(TB3CCR4 >= MaxIntensity)
+            {
+                TB3CCR4 = MaxIntensity;
+            }
         }
     }
     else if(ADCValue[ACRED] < HTresholdRed)
     {
-        TB3CCR4--;
-        if(TB3CCR4 <= 1)
+        ret = DATAWAIT;
+        if(changeValues)
         {
-            TB3CCR4 = 1;
+            TB3CCR4--;
+            if(TB3CCR4 <= 1)
+            {
+                TB3CCR4 = 1;
+            }
         }
     }
 
     if(ADCValue[ACRED] < LTresholdInfra)
     {
-        TB3CCR5++;
-        if(TB3CCR5 >= MaxIntensity)
+        ret = DATAWAIT;
+
+        if(changeValues)
         {
-            TB3CCR5 = MaxIntensity;
+            TB3CCR5++;
+            if(TB3CCR5 >= MaxIntensity)
+            {
+                TB3CCR5 = MaxIntensity;
+            }
         }
     }
     else if(ADCValue[ACRED] < HTresholdInfra)
     {
-        TB3CCR5--;
-        if(TB3CCR5 <= 1)
+        ret = DATAWAIT;
+
+        if(changeValues)
         {
-            TB3CCR5 = 1;
+
+            TB3CCR5--;
+            if(TB3CCR5 <= 1)
+            {
+                TB3CCR5 = 1;
+            }
         }
     }
 
-
-    //Based on the current Level the Threshold gets Adjusted
-    //These will be set during
-    LTresholdRed = 0;
-    HTresholdRed = 0xFFFF;
-    LTresholdInfra = 0;
-    HTresholdInfra = 0xFFFF;
-
     //Dont Forget to start the timer again.
-    TB3CTL |= MC__UP;
+    if(changeValues)
+    {
+        TB3CTL |= MC__UP;
+    }
+    return ret;
 }
 
 void CalculateSP02(unsigned int* meanSPO2, unsigned long rms_AC_Red, unsigned long rms_AC_Infra)
 {
     unsigned int R;
+    unsigned int SPO2Taken = 2; //Right Shift
     unsigned int SPO2Level;
+
     //  Possibility 1
     //  R = ((rms_AC_Red / mean_DC_Red)/(rms_AC_Infra/mean_DC_Infra) -0.5) *100; //We have to subtract 0.5 so that we can Access the Array
     //  Possibiltiy 2
@@ -443,8 +477,11 @@ void CalculateSP02(unsigned int* meanSPO2, unsigned long rms_AC_Red, unsigned lo
 
 int CaluclateBPM(int samples)
 {
+    unsigned int samplesBPM = 250; //Per 1 sec we take roughly 250 samples of the red LED
+    unsigned int numOfMaxTaken = 4;
     unsigned int bpm;
-    bpm = (SamplesBPM* 60)/(samples/NumOfMaxTaken);
+
+    bpm = (samplesBPM* 60)/(samples/numOfMaxTaken);
     return bpm;
 }
 
@@ -468,11 +505,33 @@ void InitLCDPins(void)
     UCA0CTLW0 &= ~UCSWRST;
 }
 
-//Writes everything needed that needs to be updated
-void LCDWriteStatusValues(unsigned int SP02, unsigned int bpm, unsigned int battStatus)
+//Just do it every 100ms
+//Based on the current sample we draw it to the 5 row.
+//We have only 8 Pixels  per Row
+void LCDWriteGraph(unsigned int sample, int row)
 {
 
 
+
+
+}
+
+//Writes everything needed that needs to be updated
+void LCDWriteStatusValues(unsigned int SPO2, unsigned int bpm, unsigned int battStatus)
+{
+    char spo2[4];
+    char sbpm[4];
+
+    sprintf(spo2,"%d",SPO2);
+    sprintf(sbpm,"%d", bpm);
+
+    clearBank(3);
+    clearBank(4);
+
+    setAddr(3,24);
+    writeStringToLCD(spo2);
+    setAddr(42,24);
+    writeStringToLCD(sbpm);
 }
 
 void setAddr(unsigned char xAddr, unsigned char yAddr) {
