@@ -1,6 +1,6 @@
 #include <msp430.h>
-#include "PCD8544.h"
 #include <math.h>
+#include "PCD8544.h"
 #include <stdio.h>
 
 //LDC PIN DEFINES
@@ -109,8 +109,8 @@ void main(void) {
 
     unsigned int i = 0;
     unsigned int samplesHBeat = 0;
-    unsigned int takeBattery  = 0;
-    unsigned int updLCD    = 0;
+    unsigned int takeBattery = 0;
+    unsigned int updLCD = 0;
     unsigned int bpm =0;
     unsigned int firstIterationOver = 0;
     unsigned int changeIntensity = CHANGEINTENSITY;
@@ -220,7 +220,7 @@ void main(void) {
             sampleDC = ADCValue[DCRED];
             sampleAC = ADCValue[ACRED];
 
-            red.RmsAC = ((long)sampleAC)*sampleAC; //Div by 8 makes it easier
+            red.RmsAC = ((unsigned long)sampleAC)*sampleAC; //Div by 8 makes it easier
             red.RmsAC = red.RmsAC >>8;
             red.MeanDC += (unsigned long)sampleDC >> 8;
 
@@ -295,7 +295,7 @@ void main(void) {
 
             //P1OUT &= ~BIT0;
             StartStepB = 0;
-            P1OUT &= BIT0;
+
         }
     }
     //__bis_SR_register(LPM0);
@@ -316,7 +316,7 @@ __interrupt void TIMER2_B0_ISR(void)
 __interrupt void TIMER2_B1_ISR(void)
 {
     TB2CTL &= ~TBIFG;
-    //StartStepB = 1;
+    StartStepB = 1;
     //P1OUT |= BIT0;
     //_bic_SR_register_on_exit(LPM0);
 }
@@ -412,8 +412,6 @@ void GetBatteryVoltage(unsigned int* lcdBattFlag)
         *lcdBattFlag ^= BIT0; // Blinking, BATTERY_10 (0x0)
     }
 
-
-
 }
 
 
@@ -497,36 +495,51 @@ int CheckLEDIntensity(int changeValues)
 void CalculateSP02(unsigned int* meanSPO2, unsigned long rms_AC_Red, unsigned long rms_AC_Infra)
 {
     unsigned int R;
-    unsigned int SPO2Taken = 2; //Right Shift
+    unsigned int SPO2Taken; //Right Shift
     unsigned int SPO2Level;
 
-    float sqrtZaehler = sqrt(rms_AC_Red);
-    float zaehler = log(sqrtZaehler);
-    float sqrtNenner = sqrt(rms_AC_Infra);
-    float nenner = log(sqrtNenner);
-    if(nenner != 0)
+    //float sqrtZaehler;
+    float zaehler;
+    float a;
+    //float sqrtNenner;
+    float nenner;
+    float b;
+    P1OUT |= BIT0;
+    SPO2Taken = 2;
+
+    //sqrtZaehler = sqrt(rms_AC_Red);
+    //zaehler = log(sqrtZaehler);
+    //sqrtNenner = sqrt(rms_AC_Infra);
+    //nenner = log(sqrtNenner);
+    if(rms_AC_Infra != 0)
     {
-        R = zaehler /nenner * 100;
+        //R = zaehler /nenner * 100;
+
+        //  Possibiltiy 2
+        //R = log((rms_AC_Red))/log((rms_AC_Infra))*100; //when DC_Red =~ DC_Infra
+        //Possibilty 3 own Taylor Series cut off at fourth exponentn
+        a = sqrt(rms_AC_Red);
+        b = sqrt(rms_AC_Infra);
+        zaehler = a - (a*a)/2 + (a*a*a)/3 - (a*a*a*a)/4;
+        nenner = b - (b*b)/2 + (b*b*b)/3 - (b*b*b*b)/4;
+
+        R = (zaehler/nenner)*100;
+
+        SPO2Level =  R;
+        //SP02Level = SP02[R];
+
+        *meanSPO2 += (SPO2Level >> SPO2Taken); //We take an Average of 4 Values to Calculate the Sp02 Level
     }
-
-
-    //  Possibility 1
-    //  R = ((rms_AC_Red / mean_DC_Red)/(rms_AC_Infra/mean_DC_Infra) -0.5) *100; //We have to subtract 0.5 so that we can Access the Array
-    //  Possibiltiy 2
-    //R = log(sqrt(rms_AC_Red))/log(sqrt(rms_AC_Infra))*100; //when DC_Red =~ DC_Infra
-
-
-    SPO2Level =  (unsigned int)R;
-    //SP02Level = SP02[R];
-
-    *meanSPO2 += (SPO2Level >> SPO2Taken); //We take an Average of 4 Values to Calculate the Sp02 Level
+    P1OUT &= ~BIT0;
 }
 
 int CaluclateBPM(int samples)
 {
-    unsigned int samplesBPM = 250; //Per 1 sec we take roughly 250 samples of the red LED
-    unsigned int numOfMaxTaken = 4;
+    unsigned int samplesBPM; //Per 1 sec we take roughly 250 samples of the red LED
+    unsigned int numOfMaxTaken;
     unsigned int bpm;
+    samplesBPM = 250;
+    numOfMaxTaken = 4;
 
     bpm = (samplesBPM* 60)/(samples/numOfMaxTaken);
     return bpm;
