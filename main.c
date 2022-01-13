@@ -32,6 +32,8 @@
 typedef enum{ DCRED = 0, ACRED, DCINFRA, ACINFRA, DCOFF, ACOFF, TEMP, LIPO}ADCTYPE;
 unsigned int ADCValue[8];//
 
+unsigned int FreqMult = 10; //Variable that sets the Frequency of the Board. Multiple of 1 MHz upto 24
+
 unsigned int StartStepA   = 0;
 unsigned int StartStepB   = 0;
 
@@ -116,16 +118,23 @@ void main(void) {
 
     int ret = 0;
 
+    //##TestPIN
+    P1DIR |= BIT0;
+    //##TestPIN
+
+
     LEDValues red;
     red.MeanDC = 0;
     red.RmsAC = 0;
     LEDValues infra;
     infra.MeanDC = 0;
-    infra.RmsAC = 0;
+    infra.RmsAC = 1024;
 
     unsigned int meanTemp = 0;
     unsigned int lcdBattFlag = 0;
     unsigned int meanSPO2 = 0;
+
+    if(FreqMult >24) FreqMult = 24;
 
     //Configuration for ADC Pin start on DC for RED (A3, P1.3)
     //Later each ADC Pin (A1, A3, A10, A11) is configured and triggered manually
@@ -169,7 +178,7 @@ void main(void) {
     P6DIR  |= BIT3 | BIT4;
     P6SEL0 |= BIT3 | BIT4;
 
-    TB3CCR0 = MaxIntensity;
+    TB3CCR0   = MaxIntensity;
     TB3CCTL4 |= OUTMOD_7;
     TB3CCTL5 |= OUTMOD_7;
     TB3CCR4   = MaxIntensity>>1;
@@ -211,14 +220,15 @@ void main(void) {
             sampleDC = ADCValue[DCRED];
             sampleAC = ADCValue[ACRED];
 
-            red.RmsAC += (long)(sampleAC * sampleAC) >> 8; //Div by 8 makes it easier
-            red.MeanDC += (long)sampleDC >> 8;
+            red.RmsAC = ((long)sampleAC)*sampleAC; //Div by 8 makes it easier
+            red.RmsAC = red.RmsAC >>8;
+            red.MeanDC += (unsigned long)sampleDC >> 8;
 
             GetTemp(&meanTemp);
 
             ret = CheckLEDIntensity(changeIntensity);
 
-            if(!firstIterationOver && ret == DATAVALID)
+            if(firstIterationOver && ret == DATAVALID)
             {
                 samplesHBeat++;
                 MinMaxDetection(&maxDetect, sampleAC);
@@ -235,7 +245,7 @@ void main(void) {
                     maxDetect.NumOfPeaks = 0;
                 }
 
-                if(i == 1000)
+                if(i == 250)
                 {
                     i = 0;
                     updLCD = 1;
@@ -254,11 +264,15 @@ void main(void) {
                 }
             }
             //Do we need this ??
-            GetDiodeADC(DCOFF);
+            //GetDiodeADC(DCOFF);
+
+            P1OUT &= ~BIT0;
+            StartStepA = 0;
 
         }
         else if(StartStepB)
         {
+
             GetDiodeADC(DCINFRA);
             sampleDC = ADCValue[DCINFRA];
             sampleAC = ADCValue[ACINFRA];
@@ -278,8 +292,13 @@ void main(void) {
                 //Send the Data via SPI.
             }
             firstIterationOver = 1;
+
+            //P1OUT &= ~BIT0;
+            StartStepB = 0;
+            P1OUT &= BIT0;
         }
     }
+    //__bis_SR_register(LPM0);
 } // eof main
 
 
@@ -288,6 +307,8 @@ __interrupt void TIMER2_B0_ISR(void)
 {
     TB2CCTL0 &= ~CCIFG;
     StartStepA = 1;
+
+    //_bic_SR_register_on_exit(LPM0);
 }
 
 
@@ -295,7 +316,9 @@ __interrupt void TIMER2_B0_ISR(void)
 __interrupt void TIMER2_B1_ISR(void)
 {
     TB2CTL &= ~TBIFG;
-    StartStepB = 1;
+    //StartStepB = 1;
+    //P1OUT |= BIT0;
+    //_bic_SR_register_on_exit(LPM0);
 }
 
 //Check the maximum
@@ -389,6 +412,8 @@ void GetBatteryVoltage(unsigned int* lcdBattFlag)
         *lcdBattFlag ^= BIT0; // Blinking, BATTERY_10 (0x0)
     }
 
+
+
 }
 
 
@@ -400,10 +425,11 @@ int CheckLEDIntensity(int changeValues)
 {
 
     int ret = DATAVALID;
-    //Disable both PWM
+
 
     if(changeValues)
     {
+        //Disable both PWM
         TB3CTL &= ~MC_0;
     }
 
@@ -420,7 +446,7 @@ int CheckLEDIntensity(int changeValues)
             }
         }
     }
-    else if(ADCValue[ACRED] < HTresholdRed)
+    else if(ADCValue[ACRED] > HTresholdRed)
     {
         ret = DATAWAIT;
         if(changeValues)
@@ -446,7 +472,7 @@ int CheckLEDIntensity(int changeValues)
             }
         }
     }
-    else if(ADCValue[ACRED] < HTresholdInfra)
+    else if(ADCValue[ACRED] > HTresholdInfra)
     {
         ret = DATAWAIT;
 
@@ -474,12 +500,23 @@ void CalculateSP02(unsigned int* meanSPO2, unsigned long rms_AC_Red, unsigned lo
     unsigned int SPO2Taken = 2; //Right Shift
     unsigned int SPO2Level;
 
+    float sqrtZaehler = sqrt(rms_AC_Red);
+    float zaehler = log(sqrtZaehler);
+    float sqrtNenner = sqrt(rms_AC_Infra);
+    float nenner = log(sqrtNenner);
+    if(nenner != 0)
+    {
+        R = zaehler /nenner * 100;
+    }
+
+
     //  Possibility 1
     //  R = ((rms_AC_Red / mean_DC_Red)/(rms_AC_Infra/mean_DC_Infra) -0.5) *100; //We have to subtract 0.5 so that we can Access the Array
     //  Possibiltiy 2
-    R = log(sqrt(rms_AC_Red))/log(sqrt(rms_AC_Infra)); //when DC_Red =~ DC_Infra
+    //R = log(sqrt(rms_AC_Red))/log(sqrt(rms_AC_Infra))*100; //when DC_Red =~ DC_Infra
 
-    SPO2Level =  1;
+
+    SPO2Level =  (unsigned int)R;
     //SP02Level = SP02[R];
 
     *meanSPO2 += (SPO2Level >> SPO2Taken); //We take an Average of 4 Values to Calculate the Sp02 Level
