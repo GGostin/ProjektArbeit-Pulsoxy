@@ -28,11 +28,13 @@
 #define CHANGEINTENSITY 1
 #define KEEPINTENSITY   0
 
+#define MCLK_FREQ_MHZ 16                     // MCLK = 16MHz
+
 
 typedef enum{ DCRED = 0, ACRED, DCINFRA, ACINFRA, DCOFF, ACOFF, TEMP, LIPO}ADCTYPE;
 unsigned int ADCValue[8];//
 
-unsigned int FreqMult = 10; //Variable that sets the Frequency of the Board. Multiple of 1 MHz upto 24
+unsigned int WaitCalcSP02 = 0;
 
 unsigned int StartStepA   = 0;
 unsigned int StartStepB   = 0;
@@ -70,6 +72,8 @@ typedef struct TagLEDValues
     unsigned long RmsAC;
 }LEDValues;
 
+void Software_Trim();                        // Software Trim to get the best DCOFTRIM value
+
 
 //Set All Pins to Configure the LDC
 void InitLCDPins(void);
@@ -97,9 +101,13 @@ int CaluclateBPM(int samples);
 void LCDWriteStatusValues(unsigned int SPO2, unsigned int bpm, unsigned int battStatus);
 void LCDWriteGraph(unsigned int sample, int row);
 
+void InitPins(void);
+
 void main(void) {
 
     WDTCTL = WDTPW | WDTHOLD;           // Stop watchdog timer
+
+    InitPins();
 
     MinMax maxDetect = {0};
     maxDetect.Dir = Falling;
@@ -109,7 +117,6 @@ void main(void) {
 
     unsigned int i = 0;
     unsigned int samplesHBeat = 0;
-    unsigned int takeBattery = 0;
     unsigned int updLCD = 0;
     unsigned int bpm =0;
     unsigned int firstIterationOver = 0;
@@ -117,6 +124,8 @@ void main(void) {
     unsigned int iterIntensity = 0;
 
     int ret = 0;
+
+    CSCTL1 |= DCORSEL_5;
 
     //##TestPIN
     P1DIR |= BIT0;
@@ -128,13 +137,27 @@ void main(void) {
     red.RmsAC = 0;
     LEDValues infra;
     infra.MeanDC = 0;
-    infra.RmsAC = 1024;
+    infra.RmsAC = 0;
 
     unsigned int meanTemp = 0;
     unsigned int lcdBattFlag = 0;
     unsigned int meanSPO2 = 0;
 
-    if(FreqMult >24) FreqMult = 24;
+
+
+
+    FRCTL0 = FRCTLPW | NWAITS_1;
+
+    __bis_SR_register(SCG0);                           // disable FLL
+    CSCTL3 |= SELREF__REFOCLK;                         // Set REFO as FLL reference source
+    CSCTL1 = DCOFTRIMEN_1 | DCOFTRIM0 | DCOFTRIM1 | DCORSEL_5;// DCOFTRIM=5, DCO Range = 16MHz
+    CSCTL2 = FLLD_0 + 487;                             // DCOCLKDIV = 16MHz
+    __delay_cycles(3);
+    __bic_SR_register(SCG0);                           // enable FLL
+    Software_Trim();                                   // Software Trim to get the best DCOFTRIM value
+
+     CSCTL4 = SELMS__DCOCLKDIV | SELA__REFOCLK;        // set default REFO(~32768Hz) as ACLK source, ACLK = 32768Hz
+                                                       // default DCOCLKDIV as MCLK and SMCLK source
 
     //Configuration for ADC Pin start on DC for RED (A3, P1.3)
     //Later each ADC Pin (A1, A3, A10, A11) is configured and triggered manually
@@ -163,11 +186,11 @@ void main(void) {
     P5DIR |= BIT0 | BIT1;
     P5SEL0 |= BIT0 | BIT1;
 
-    TB2CCR0  = 2000-1;          //Every 2 ms  the LED is already on for 500 us and will continue for another 500 us
+    TB2CCR0  = (2000-1) *MCLK_FREQ_MHZ;          //Every 2 ms  the LED is already on for 500 us and will continue for another 500 us
     TB2CCTL1 |= OUTMOD_2;    //TB2CCR1 toggle/set
-    TB2CCR1  = 500-1;         //0.500us , 3.5 ms ... 4ms
+    TB2CCR1  = (500-1)*MCLK_FREQ_MHZ;         //0.500us , 3.5 ms ... 4ms
     TB2CCTL2 |= OUTMOD_6;    //TBCCR2 reset/set
-    TB2CCR2  = 1500-1;         //1.5 ms - 2.5 ms
+    TB2CCR2  = (1500-1)*MCLK_FREQ_MHZ;         //1.5 ms - 2.5 ms
     TB2CTL   |= TBSSEL_2 | MC_3 |TBCLR; // SMCLK, Up-Down-Mode, Interrupt Enable on Max Value and Zero
     TB2CTL   |= TBIE;
     TB2CCTL0 |= CCIE; //Enable Interrupt when CCR0 is reached.
@@ -178,12 +201,12 @@ void main(void) {
     P6DIR  |= BIT3 | BIT4;
     P6SEL0 |= BIT3 | BIT4;
 
-    TB3CCR0   = MaxIntensity;
+    TB3CCR0   = MaxIntensity*10;
     TB3CCTL4 |= OUTMOD_7;
     TB3CCTL5 |= OUTMOD_7;
-    TB3CCR4   = MaxIntensity>>1;
-    TB3CCR5   = MaxIntensity>>1;
-    TB3CTL   |= TBSSEL__SMCLK  | MC__UP | TBCLR; //Up-Mode 1 MHz
+    TB3CCR4   = (MaxIntensity>>1)*10;
+    TB3CCR5   = (MaxIntensity>>1)*10;
+    TB3CTL   |= TBSSEL__SMCLK  | MC__UP | TBCLR; //Up-Mode
 
     PM5CTL0 &= ~LOCKLPM5; //Without this the pins won't be configured in Hardware.
     TB2CTL &= ~TBIFG;
@@ -214,6 +237,7 @@ void main(void) {
     {
         if(StartStepA)
         {
+            P1OUT |= BIT0;
             GetDiodeADC(DCRED);
 
             //Take RMS of AC and Mean of DC
@@ -306,7 +330,11 @@ void main(void) {
 __interrupt void TIMER2_B0_ISR(void)
 {
     TB2CCTL0 &= ~CCIFG;
-    StartStepA = 1;
+
+    if(!WaitCalcSP02)
+    {
+        StartStepA = 1;
+    }
 
     //_bic_SR_register_on_exit(LPM0);
 }
@@ -316,9 +344,28 @@ __interrupt void TIMER2_B0_ISR(void)
 __interrupt void TIMER2_B1_ISR(void)
 {
     TB2CTL &= ~TBIFG;
+    if(!WaitCalcSP02)
+    {
     StartStepB = 1;
+    }
     //P1OUT |= BIT0;
     //_bic_SR_register_on_exit(LPM0);
+}
+
+
+//Sets a defined State for all Pins (High Ohm)
+//Afterwards the selected individually
+void InitPins(void)
+{
+    P1DIR = 0xFF; P1OUT = 0;
+    P2DIR = 0xFF; P2OUT = 0;
+    P3DIR = 0xFF; P3OUT = 0;
+    P4DIR = 0xFF; P4OUT = 0;
+    P5DIR = 0xFF; P5OUT = 0;
+    P6DIR = 0xFF; P6OUT = 0;
+    PADIR = 0xFF; PAOUT = 0;
+    PBDIR = 0xFF; PBOUT = 0;
+    PCDIR = 0xFF; PCOUT = 0;
 }
 
 //Check the maximum
@@ -498,13 +545,8 @@ void CalculateSP02(unsigned int* meanSPO2, unsigned long rms_AC_Red, unsigned lo
     unsigned int SPO2Taken; //Right Shift
     unsigned int SPO2Level;
 
-    //float sqrtZaehler;
-    float zaehler;
-    float a;
-    //float sqrtNenner;
-    float nenner;
-    float b;
-    P1OUT |= BIT0;
+    WaitCalcSP02 = 1;
+
     SPO2Taken = 2;
 
     //sqrtZaehler = sqrt(rms_AC_Red);
@@ -513,33 +555,25 @@ void CalculateSP02(unsigned int* meanSPO2, unsigned long rms_AC_Red, unsigned lo
     //nenner = log(sqrtNenner);
     if(rms_AC_Infra != 0)
     {
-        //R = zaehler /nenner * 100;
-
         //  Possibiltiy 2
-        //R = log((rms_AC_Red))/log((rms_AC_Infra))*100; //when DC_Red =~ DC_Infra
-        //Possibilty 3 own Taylor Series cut off at fourth exponentn
-        a = sqrt(rms_AC_Red);
-        b = sqrt(rms_AC_Infra);
-        zaehler = a - (a*a)/2 + (a*a*a)/3 - (a*a*a*a)/4;
-        nenner = b - (b*b)/2 + (b*b*b)/3 - (b*b*b*b)/4;
-
-        R = (zaehler/nenner)*100;
+        R = log((rms_AC_Red))/log((rms_AC_Infra))*100; //when DC_Red =~ DC_Infra
 
         SPO2Level =  R;
         //SP02Level = SP02[R];
 
         *meanSPO2 += (SPO2Level >> SPO2Taken); //We take an Average of 4 Values to Calculate the Sp02 Level
     }
-    P1OUT &= ~BIT0;
+
+    WaitCalcSP02 = 0;
 }
 
 int CaluclateBPM(int samples)
 {
-    unsigned int samplesBPM; //Per 1 sec we take roughly 250 samples of the red LED
-    unsigned int numOfMaxTaken;
+    unsigned int samplesBPM = 250;; //Per 1 sec we take roughly 250 samples of the red LED
+    unsigned int numOfMaxTaken = 4;
+;
     unsigned int bpm;
-    samplesBPM = 250;
-    numOfMaxTaken = 4;
+
 
     bpm = (samplesBPM* 60)/(samples/numOfMaxTaken);
     return bpm;
@@ -671,3 +705,71 @@ void clearBank(unsigned char bank) {
     setAddr(0, bank);
 }
 
+void Software_Trim()
+{
+    unsigned int oldDcoTap = 0xffff;
+    unsigned int newDcoTap = 0xffff;
+    unsigned int newDcoDelta = 0xffff;
+    unsigned int bestDcoDelta = 0xffff;
+    unsigned int csCtl0Copy = 0;
+    unsigned int csCtl1Copy = 0;
+    unsigned int csCtl0Read = 0;
+    unsigned int csCtl1Read = 0;
+    unsigned int dcoFreqTrim = 3;
+    unsigned char endLoop = 0;
+
+    do
+    {
+        CSCTL0 = 0x100;                         // DCO Tap = 256
+        do
+        {
+            CSCTL7 &= ~DCOFFG;                  // Clear DCO fault flag
+        }while (CSCTL7 & DCOFFG);               // Test DCO fault flag
+
+        __delay_cycles((unsigned int)3000 * MCLK_FREQ_MHZ);// Wait FLL lock status (FLLUNLOCK) to be stable
+                                                           // Suggest to wait 24 cycles of divided FLL reference clock
+        while((CSCTL7 & (FLLUNLOCK0 | FLLUNLOCK1)) && ((CSCTL7 & DCOFFG) == 0));
+
+        csCtl0Read = CSCTL0;                   // Read CSCTL0
+        csCtl1Read = CSCTL1;                   // Read CSCTL1
+
+        oldDcoTap = newDcoTap;                 // Record DCOTAP value of last time
+        newDcoTap = csCtl0Read & 0x01ff;       // Get DCOTAP value of this time
+        dcoFreqTrim = (csCtl1Read & 0x0070)>>4;// Get DCOFTRIM value
+
+        if(newDcoTap < 256)                    // DCOTAP < 256
+        {
+            newDcoDelta = 256 - newDcoTap;     // Delta value between DCPTAP and 256
+            if((oldDcoTap != 0xffff) && (oldDcoTap >= 256)) // DCOTAP cross 256
+                endLoop = 1;                   // Stop while loop
+            else
+            {
+                dcoFreqTrim--;
+                CSCTL1 = (csCtl1Read & (~DCOFTRIM)) | (dcoFreqTrim<<4);
+            }
+        }
+        else                                   // DCOTAP >= 256
+        {
+            newDcoDelta = newDcoTap - 256;     // Delta value between DCPTAP and 256
+            if(oldDcoTap < 256)                // DCOTAP cross 256
+                endLoop = 1;                   // Stop while loop
+            else
+            {
+                dcoFreqTrim++;
+                CSCTL1 = (csCtl1Read & (~DCOFTRIM)) | (dcoFreqTrim<<4);
+            }
+        }
+
+        if(newDcoDelta < bestDcoDelta)         // Record DCOTAP closest to 256
+        {
+            csCtl0Copy = csCtl0Read;
+            csCtl1Copy = csCtl1Read;
+            bestDcoDelta = newDcoDelta;
+        }
+
+    }while(endLoop == 0);                      // Poll until endLoop == 1
+
+    CSCTL0 = csCtl0Copy;                       // Reload locked DCOTAP
+    CSCTL1 = csCtl1Copy;                       // Reload locked DCOFTRIM
+    while(CSCTL7 & (FLLUNLOCK0 | FLLUNLOCK1)); // Poll until FLL is locked
+}
