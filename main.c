@@ -176,11 +176,10 @@ void main(void) {
     //ADCIE |= ADCIE0;
 
     InitLCDPins();
-    __delay_cycles(300000); // we have to wait a bit for the LCD to boot up.
+    __delay_cycles(300000*MCLK_FREQ_MHZ); // we have to wait a bit for the LCD to boot up.
     initLCD();
     clearLCD();
 
-    __delay_cycles(500000); //So that we come from a fres boot the Screen will be empty and doesn't accidentally contain old Information
 
     //Use PIn 5.0 and 5.1 for switching the LEDs
     P5DIR |= BIT0 | BIT1;
@@ -228,7 +227,7 @@ void main(void) {
     writeBattery(BATTERY_FULL);
 
     //Wait a second for everything to start
-    __delay_cycles(1000000);
+    __delay_cycles(1000000*MCLK_FREQ_MHZ);
 
     __bis_SR_register(GIE);
 
@@ -397,17 +396,18 @@ void MinMaxDetection(MinMax* detect, unsigned int sample)
 void GetDiodeADC(unsigned int channel)
 {
     ADCCTL0  &= ~ADCENC;
+    ADCMCTL0 &= ADCINCH_0; //Reset the channel for next Conversion
     ADCMCTL0 |= ADCINCH_3;
     ADCCTL0  |= ADCENC | ADCSC;
 
     while(ADCCTL1 & ADCBUSY);
     ADCValue[channel] = ADCMEM0;
 
+    channel++;
     ADCCTL0  &= ~ADCENC;
+    ADCMCTL0 &= ADCINCH_0; //Reset the channel for next Conversion
     ADCMCTL0 |= ADCINCH_10;
     ADCCTL0  |= ADCENC | ADCSC;
-
-    channel++;
 
     while(ADCCTL1 & ADCBUSY);
     ADCValue[channel] = ADCMEM0;
@@ -417,11 +417,13 @@ void GetDiodeADC(unsigned int channel)
 void GetTemp(unsigned int* meanTemp)
 {
     ADCCTL0  &= ~ADCENC;
+    ADCMCTL0 &= ADCINCH_0; //Reset the channel for next Conversion
     ADCMCTL0 |= ADCINCH_11;
     ADCCTL0  |= ADCENC | ADCSC;
 
     while(ADCCTL1 & ADCBUSY);
     ADCValue[TEMP] = ADCMEM0;
+
 
     *meanTemp =+ (ADCValue[TEMP] >> 8);
 }
@@ -429,11 +431,11 @@ void GetBatteryVoltage(unsigned int* lcdBattFlag)
 {
     unsigned int voltageLevel = 0;
     ADCCTL0  &= ~ADCENC;
+    ADCMCTL0 &= ADCINCH_0; //Reset the channel for next Conversion
     ADCMCTL0 |= ADCINCH_1;
     ADCCTL0  |= ADCENC | ADCSC;
 
     while(ADCCTL1 & ADCBUSY);
-
     voltageLevel = ADCMEM0;
 
     //Based on the battery level, Change a Flag for The LCD
