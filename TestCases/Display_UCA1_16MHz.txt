@@ -1,0 +1,261 @@
+//***************************************************************************************
+//  MSP430 + PCD8544-based LCD (like Nokia 5110)
+//
+//  MSP430x2xx Family User's Guide      : http://www.ti.com/lit/ug/slau144j/slau144j.pdf
+//  MSP430G2x53 Data Sheet              : http://www.ti.com/lit/ds/symlink/msp430g2553.pdf
+//  PCD8544 Data Sheet (Nokia 5110 MCU) : https://www.sparkfun.com/datasheets/LCD/Monochrome/Nokia5110.pdf
+//
+//  My setup:
+//
+//         NOKIA 5110 LCD                                               MSP-EXP430G2
+//       -----------------                                           -------------------
+//      |              GND|<-- Ground ------------------------------|J6     GND         |
+//      |               BL|<-- Back-light (not connected)
+//      |              VCC|<-- Vcc +3..5V --------------------------|J1.1   VCC         |
+//      |                 |
+//      |              CLC|<-- Clock -------------------------------|J1.7   P1.5        |
+//      |              DIN|<-- Data Input --------------------------|J2.15  P1.7        |
+//      |               DC|<-- Data/Command (high/low) -------------|J1.3   P1.1        |
+//      |               CE|<-- Chip Enable (active low) ------------|J1.2   P6.0        |
+//      |              RST|<-- Reset -------------------------------|J2.16  RST
+//
+//
+//  This example is based on the RobG's example : http://forum.43oh.com/topic/1312-nokia-5110-display
+//  Changes:
+//  - Removed graphics function
+//  - Removed unused functions
+//  + LCD test runs in the loop
+//  + Added some bars animation
+//
+//***************************************************************************************
+
+#include <msp430.h>
+#include "PCD8544.h"
+
+#define LCD5110_SCLK_PIN            BIT1 //CLOCK
+#define LCD5110_DN_PIN              BIT3 //MISO
+#define LCD5110_SCE_PIN             BIT0 //DONT CARE CHIP ENABLE BUT ONLY ONE CHIP
+#define LCD5110_DC_PIN              BIT2 // DATA/COMMAND
+#define LCD5110_SELECT              P4OUT &= ~LCD5110_SCE_PIN
+#define LCD5110_DESELECT            P4OUT |= LCD5110_SCE_PIN
+#define LCD5110_SET_COMMAND         P4OUT &= ~LCD5110_DC_PIN
+#define LCD5110_SET_DATA            P4OUT |= LCD5110_DC_PIN
+#define LCD5110_COMMAND             0
+#define LCD5110_DATA                1
+
+// LCD functions declaration
+
+// Sets LCD address (x = 0..83, y = 0..5)
+void setAddr(unsigned char xAddr, unsigned char yAddr);
+void writeToLCD(unsigned char dataCommand, unsigned char data);
+void writeCharToLCD(char c);
+void writeStringToLCD(const char *string);
+void initLCD();
+void clearLCD();
+void clearBank(unsigned char bank);
+void Software_Trim();                        // Software Trim to get the best DCOFTRIM value
+#define MCLK_FREQ_MHZ 16
+
+void main(void) {
+
+    WDTCTL = WDTPW | WDTHOLD;           // Stop watchdog timer
+
+    FRCTL0 = FRCTLPW | NWAITS_1;
+
+    __bis_SR_register(SCG0);                           // disable FLL
+       CSCTL3 |= SELREF__REFOCLK;                         // Set REFO as FLL reference source
+       CSCTL1 = DCOFTRIMEN_1 | DCOFTRIM0 | DCOFTRIM1 | DCORSEL_5;// DCOFTRIM=5, DCO Range = 16MHz
+       CSCTL2 = FLLD_0 + 487;                             // DCOCLKDIV = 16MHz
+       __delay_cycles(3);
+       __bic_SR_register(SCG0);                           // enable FLL
+       Software_Trim();                                   // Software Trim to get the best DCOFTRIM value
+
+        CSCTL4 = SELMS__DCOCLKDIV | SELA__REFOCLK;        // set default REFO(~32768Hz) as ACLK source, ACLK = 32768Hz
+                                                          // default DCOCLKDIV as MCLK and SMCLK source
+
+    P1DIR |= BIT0;
+
+    P6DIR |= BIT0 | BIT1;
+    P6OUT |= BIT0 | BIT1;
+
+    P4OUT |= LCD5110_DC_PIN;
+    P4DIR |= LCD5110_DC_PIN;
+
+    P4OUT |= LCD5110_SCE_PIN;  // Disable LCD, set Data mode
+    P4DIR |= LCD5110_SCE_PIN;  // Set pins to output direction
+
+    // Setup UCAO
+
+    P4SEL0 |= LCD5110_DN_PIN | LCD5110_SCLK_PIN;
+
+    UCA1CTLW0 |= UCSWRST;                     // **Put state machine in reset**
+    UCA1CTLW0 |= UCMST|UCSYNC|UCCKPH|UCMSB;   // 3-pin, 8-bit SPI master
+    UCA1CTLW0 |= UCSSEL_2; // SMCLK
+    UCA1BRW   |= 0; //1:1
+
+    PM5CTL0 &= ~LOCKLPM5;
+    UCA1CTLW0 &= ~UCSWRST;
+
+    __delay_cycles(300000*MCLK_FREQ_MHZ);
+    initLCD();
+
+    int c;
+
+    while(1) {
+        clearLCD();
+
+        __delay_cycles(1000000*MCLK_FREQ_MHZ);
+        setAddr(10, 2);
+        writeStringToLCD("Nokia 5110");
+        __delay_cycles(2000000*MCLK_FREQ_MHZ);
+        setAddr(10, 2);
+        writeStringToLCD("Nokia 5210");
+        __delay_cycles(2000000*MCLK_FREQ_MHZ);
+        setAddr(10, 2);
+        writeStringToLCD("Nokia 5310");
+        __delay_cycles(2000000*MCLK_FREQ_MHZ);
+        setAddr(0,4);
+        writeStringToLCD("Edmund Mcmillen");
+        __delay_cycles(2000000*MCLK_FREQ_MHZ);
+
+    } // eof while()
+} // eof main
+
+
+// LCD functions implementation
+
+void setAddr(unsigned char xAddr, unsigned char yAddr) {
+    writeToLCD(LCD5110_COMMAND, PCD8544_SETXADDR | xAddr);
+    writeToLCD(LCD5110_COMMAND, PCD8544_SETYADDR | yAddr);
+}
+
+void writeToLCD(unsigned char dataCommand, unsigned char data) {
+    LCD5110_SELECT;
+
+    if(dataCommand) {
+        LCD5110_SET_DATA;
+    } else {
+        LCD5110_SET_COMMAND;
+    }
+
+    UCA1TXBUF  = data;
+    while(!(UCTXIFG & UCA1IFG ))
+    {
+        P1OUT ^= BIT0;
+    }
+    LCD5110_DESELECT;
+}
+
+void initLCD() {
+    writeToLCD(LCD5110_COMMAND, PCD8544_FUNCTIONSET | PCD8544_EXTENDEDINSTRUCTION);
+    writeToLCD(LCD5110_COMMAND, PCD8544_SETVOP | 0x3F);
+    writeToLCD(LCD5110_COMMAND, PCD8544_SETTEMP | 0x02);
+    writeToLCD(LCD5110_COMMAND, PCD8544_SETBIAS | 0x03);
+    writeToLCD(LCD5110_COMMAND, PCD8544_FUNCTIONSET);
+    writeToLCD(LCD5110_COMMAND, PCD8544_DISPLAYCONTROL | PCD8544_DISPLAYNORMAL);
+}
+
+void writeCharToLCD(char c) {
+    unsigned char i;
+    for(i = 0; i < 5; i++) {
+        writeToLCD(LCD5110_DATA, font[c - 0x20][i]);
+    }
+    writeToLCD(LCD5110_DATA, 0);
+}
+
+void writeStringToLCD(const char *string) {
+    while(*string) {
+        writeCharToLCD(*string++);
+    }
+}
+
+void clearLCD() {
+    setAddr(0, 0);
+    int i = 0;
+    while(i < PCD8544_MAXBYTES) {
+        writeToLCD(LCD5110_DATA, 0);
+        i++;
+    }
+    setAddr(0, 0);
+}
+
+void clearBank(unsigned char bank) {
+    setAddr(0, bank);
+    int i = 0;
+    while(i < PCD8544_HPIXELS) {
+        writeToLCD(LCD5110_DATA, 0);
+        i++;
+    }
+    setAddr(0, bank);
+}
+
+void Software_Trim()
+{
+    unsigned int oldDcoTap = 0xffff;
+    unsigned int newDcoTap = 0xffff;
+    unsigned int newDcoDelta = 0xffff;
+    unsigned int bestDcoDelta = 0xffff;
+    unsigned int csCtl0Copy = 0;
+    unsigned int csCtl1Copy = 0;
+    unsigned int csCtl0Read = 0;
+    unsigned int csCtl1Read = 0;
+    unsigned int dcoFreqTrim = 3;
+    unsigned char endLoop = 0;
+
+    do
+    {
+        CSCTL0 = 0x100;                         // DCO Tap = 256
+        do
+        {
+            CSCTL7 &= ~DCOFFG;                  // Clear DCO fault flag
+        }while (CSCTL7 & DCOFFG);               // Test DCO fault flag
+
+        __delay_cycles((unsigned int)3000 * MCLK_FREQ_MHZ);// Wait FLL lock status (FLLUNLOCK) to be stable
+                                                           // Suggest to wait 24 cycles of divided FLL reference clock
+        while((CSCTL7 & (FLLUNLOCK0 | FLLUNLOCK1)) && ((CSCTL7 & DCOFFG) == 0));
+
+        csCtl0Read = CSCTL0;                   // Read CSCTL0
+        csCtl1Read = CSCTL1;                   // Read CSCTL1
+
+        oldDcoTap = newDcoTap;                 // Record DCOTAP value of last time
+        newDcoTap = csCtl0Read & 0x01ff;       // Get DCOTAP value of this time
+        dcoFreqTrim = (csCtl1Read & 0x0070)>>4;// Get DCOFTRIM value
+
+        if(newDcoTap < 256)                    // DCOTAP < 256
+        {
+            newDcoDelta = 256 - newDcoTap;     // Delta value between DCPTAP and 256
+            if((oldDcoTap != 0xffff) && (oldDcoTap >= 256)) // DCOTAP cross 256
+                endLoop = 1;                   // Stop while loop
+            else
+            {
+                dcoFreqTrim--;
+                CSCTL1 = (csCtl1Read & (~DCOFTRIM)) | (dcoFreqTrim<<4);
+            }
+        }
+        else                                   // DCOTAP >= 256
+        {
+            newDcoDelta = newDcoTap - 256;     // Delta value between DCPTAP and 256
+            if(oldDcoTap < 256)                // DCOTAP cross 256
+                endLoop = 1;                   // Stop while loop
+            else
+            {
+                dcoFreqTrim++;
+                CSCTL1 = (csCtl1Read & (~DCOFTRIM)) | (dcoFreqTrim<<4);
+            }
+        }
+
+        if(newDcoDelta < bestDcoDelta)         // Record DCOTAP closest to 256
+        {
+            csCtl0Copy = csCtl0Read;
+            csCtl1Copy = csCtl1Read;
+            bestDcoDelta = newDcoDelta;
+        }
+
+    }while(endLoop == 0);                      // Poll until endLoop == 1
+
+    CSCTL0 = csCtl0Copy;                       // Reload locked DCOTAP
+    CSCTL1 = csCtl1Copy;                       // Reload locked DCOFTRIM
+    while(CSCTL7 & (FLLUNLOCK0 | FLLUNLOCK1)); // Poll until FLL is locked
+}
+
+
