@@ -4,14 +4,14 @@
 #include <stdio.h>
 
 //LDC PIN DEFINES
-#define LCD5110_SCLK_PIN            BIT5
-#define LCD5110_DN_PIN              BIT7
+#define LCD5110_SCLK_PIN            BIT1
+#define LCD5110_DN_PIN              BIT3
 #define LCD5110_SCE_PIN             BIT0
-#define LCD5110_DC_PIN              BIT1
-#define LCD5110_SELECT              P6OUT &= ~LCD5110_SCE_PIN
-#define LCD5110_DESELECT            P6OUT |= LCD5110_SCE_PIN
-#define LCD5110_SET_COMMAND         P1OUT &= ~LCD5110_DC_PIN
-#define LCD5110_SET_DATA            P1OUT |= LCD5110_DC_PIN
+#define LCD5110_DC_PIN              BIT2
+#define LCD5110_SELECT              P4OUT &= ~LCD5110_SCE_PIN
+#define LCD5110_DESELECT            P4OUT |= LCD5110_SCE_PIN
+#define LCD5110_SET_COMMAND         P4OUT &= ~LCD5110_DC_PIN
+#define LCD5110_SET_DATA            P4OUT |= LCD5110_DC_PIN
 #define LCD5110_COMMAND             0
 #define LCD5110_DATA                1
 
@@ -30,10 +30,13 @@
 
 #define MCLK_FREQ_MHZ 16                     // MCLK = 16MHz
 
+#define RED 0
+#define INFRA 2
+
 
 typedef enum{ DCRED = 0, ACRED, DCINFRA, ACINFRA, DCOFF, ACOFF, TEMP, LIPO}ADCTYPE;
 unsigned int ADCValue[8];//
-unsigned int SPO2Lookup[] = {101, 101,101, 100, 100, 100, 100, 100, 99 , 99 , 99 , 99 , 98 , 98  ,98 , 98,  98  ,97 , 97  ,97, 97,  96  ,96 , 96,  9,5  ,95 , 95,  95  ,94 , 94,  94,  94,  93,  93,  93,  92,  92,  92,  91,  91,  91,  90,  90,  90,  89,  89,  89,  88,  88,  88,  87,  87,  87 ,86 , 86,  86  ,85 , 85,  8,4  ,84 , 84,  8,3  ,83 , 83,  82  ,82 , 81,  81  ,81 , 80,  80  ,79 , 79,  79  ,78 , 78,  77,  77, 76 , 76 , 75 , 75 , 75 , 74 , 74 , 73 , 73 , 72 , 72 , 71 , 71 , 70 , 70 , 69 , 69 , 68 , 68 , 67 , 67 , 66 , 66 , 65 , 65 , 64 , 64 , 63 , 63 , 62 , 62 , 61 , 61 , 60 , 60 , 59 , 59 , 58 , 57 ,57  ,56  ,56  ,55  ,55  ,54  ,53  ,53  ,52  ,52  ,51  ,51  ,50  ,49  ,49  ,48  ,48  ,47  ,46  ,46  ,45  ,44  ,44  ,43  ,43  ,42  ,41  ,41  ,40  ,39  ,39  ,38  ,37  ,37};
+unsigned int SPO2Lookup[] = {100, 100,100, 100, 100, 100, 100, 100, 99 , 99 , 99 , 99 , 98 , 98  ,98 , 98,  98  ,97 , 97  ,97, 97,  96  ,96 , 96,  95  ,95 , 95,  95  ,94 , 94,  94,  94,  93,  93,  93,  92,  92,  92,  91,  91,  91,  90,  90,  90,  89,  89,  89,  88,  88,  88,  87,  87,  87 ,86 , 86,  86  ,85 , 85,  84  ,84 , 84,  83  ,83 , 83,  82  ,82 , 81,  81  ,81 , 80,  80  ,79 , 79,  79  ,78 , 78,  77,  77, 76 , 76 , 75 , 75 , 75 , 74 , 74 , 73 , 73 , 72 , 72 , 71 , 71 , 70 , 70 , 69 , 69 , 68 , 68 , 67 , 67 , 66 , 66 , 65 , 65 , 64 , 64 , 63 , 63 , 62 , 62 , 61 , 61 , 60 , 60 , 59 , 59 , 58 , 57 ,57  ,56  ,56  ,55  ,55  ,54  ,53  ,53  ,52  ,52  ,51  ,51  ,50  ,49  ,49  ,48  ,48  ,47  ,46  ,46  ,45  ,44  ,44  ,43  ,43  ,42  ,41  ,41  ,40  ,39  ,39  ,38  ,37  ,37};
 
 
 unsigned int WaitCalcSP02 = 0;
@@ -46,10 +49,10 @@ static unsigned int MaxIntensity = 10;
 
 //Question is. Do both need to be changed?
 //I could argue that one is enough because the other will probably be around the same value
-static unsigned int HTresholdRed = 0xFFFF;
-static unsigned int LTresholdRed = 0;
-static unsigned int HTresholdInfra = 0xFFFF;
-static unsigned int LTresholdInfra = 0;
+const static unsigned int HTresholdRed = 0x0FFF;
+const static unsigned int LTresholdRed = 0;
+const static unsigned int HTresholdInfra = 0x0FFF;
+const static unsigned int LTresholdInfra = 0;
 
 
 typedef enum TagDirection
@@ -103,6 +106,8 @@ int CaluclateBPM(int samples);
 void LCDWriteStatusValues(unsigned int SPO2, unsigned int bpm, unsigned int battStatus);
 void LCDWriteGraph(unsigned int sample, int row);
 
+unsigned int ConvertADCValueToVoltage(unsigned int value);
+
 void InitPins(void);
 
 void main(void) {
@@ -144,8 +149,6 @@ void main(void) {
     unsigned int meanTemp = 0;
     unsigned int lcdBattFlag = 0;
     unsigned int meanSPO2 = 0;
-
-
 
 
     FRCTL0 = FRCTLPW | NWAITS_1;
@@ -239,14 +242,14 @@ void main(void) {
         if(StartStepA)
         {
             P1OUT |= BIT0;
-            GetDiodeADC(DCRED);
+            GetDiodeADC(RED);
 
             //Take RMS of AC and Mean of DC
-            sampleDC = ADCValue[DCRED];
-            sampleAC = ADCValue[ACRED];
+            sampleDC = ADCValue[RED];
+            sampleAC = ADCValue[RED];
 
             red.RmsAC = ((unsigned long)sampleAC)*sampleAC; //Div by 8 makes it easier
-            red.RmsAC = red.RmsAC >>8;
+            red.RmsAC += red.RmsAC >>8;
             red.MeanDC += (unsigned long)sampleDC >> 8;
 
             GetTemp(&meanTemp);
@@ -275,6 +278,7 @@ void main(void) {
                     i = 0;
                     updLCD = 1;
                     CalculateSP02(&meanSPO2, red.RmsAC, infra.RmsAC);
+                    //meanSPO2++;
                 }
 
             }
@@ -298,9 +302,9 @@ void main(void) {
         else if(StartStepB)
         {
 
-            GetDiodeADC(DCINFRA);
-            sampleDC = ADCValue[DCINFRA];
-            sampleAC = ADCValue[ACINFRA];
+            GetDiodeADC(INFRA);
+            sampleDC = ADCValue[INFRA];
+            sampleAC = ADCValue[INFRA];
 
             infra.RmsAC  += (long)(sampleAC*sampleAC) >> 8; //Div by 8 makes it easier
             infra.MeanDC += (long)sampleDC >> 8;
@@ -314,6 +318,7 @@ void main(void) {
                 red.RmsAC   = 0;
                 red.MeanDC  = 0;
                 infra.RmsAC = 0;
+                meanSPO2 = 0;
                 //Send the Data via SPI.
             }
             firstIterationOver = 1;
@@ -375,9 +380,9 @@ void MinMaxDetection(MinMax* detect, unsigned int sample)
     unsigned int check;
     unsigned int* i = &detect->I;
     detect->LastValue[*i] = sample;
-    *i++;
+    (*i)++;
 
-    if(*i==4)
+    if(*i==5)
     {
         check = detect->LastValue[0];
         if(check > detect->LastValue[1] && check > detect->LastValue[2] && check > detect->LastValue[3] && check > detect->LastValue[4] && detect->Dir == Rising)
@@ -391,6 +396,7 @@ void MinMaxDetection(MinMax* detect, unsigned int sample)
         }
         *i = 0;
     }
+
 }
 
 
@@ -415,6 +421,16 @@ void GetDiodeADC(unsigned int channel)
     ADCValue[channel] = ADCMEM0;
 
 }
+unsigned int ConvertADCValueToVoltage(unsigned int value)
+{
+    //Delta is 3.3V/2^12 or arund 8 * 10^4
+    //We approx by multiplying with 8 and and shiftign with 8192
+    //To make it better comparable we multiply it by 10.
+    unsigned int approxValue = value * 12;
+    approxValue = approxValue >> 10;
+    return approxValue;
+
+}
 
 void GetTemp(unsigned int* meanTemp)
 {
@@ -424,7 +440,7 @@ void GetTemp(unsigned int* meanTemp)
     ADCCTL0  |= ADCENC | ADCSC;
 
     while(ADCCTL1 & ADCBUSY);
-    ADCValue[TEMP] = ADCMEM0;
+    ADCValue[TEMP] = ConvertADCValueToVoltage(ADCMEM0);
 
 
     *meanTemp =+ (ADCValue[TEMP] >> 8);
@@ -438,23 +454,23 @@ void GetBatteryVoltage(unsigned int* lcdBattFlag)
     ADCCTL0  |= ADCENC | ADCSC;
 
     while(ADCCTL1 & ADCBUSY);
-    voltageLevel = ADCMEM0;
+    voltageLevel = ConvertADCValueToVoltage(ADCMEM0);
 
     //Based on the battery level, Change a Flag for The LCD
 
-    if(voltageLevel >= 0xF000)
+    if(voltageLevel >= 33)
     {
         *lcdBattFlag = BATTERY_FULL; // Full
     }
-    else if(voltageLevel >= 0x8000 && voltageLevel < 0xF000)
+    else if(voltageLevel >= 24 && voltageLevel < 33)
     {
         *lcdBattFlag = BATTERY_75; // One line missing (~ 75%)
     }
-    else if(voltageLevel >= 0x4000 && voltageLevel < 0x8000)
+    else if(voltageLevel >= 22 && voltageLevel < 24)
     {
         *lcdBattFlag = BATTERY_50; // Two lines missing (~ 50%)
     }
-    else if(voltageLevel >= 0x2000 && voltageLevel < 0x4000)
+    else if(voltageLevel >= 11 && voltageLevel < 22)
     {
         *lcdBattFlag = BATTERY_25; // Three lines missing (~ 25%)
     }
@@ -546,24 +562,22 @@ int CheckLEDIntensity(int changeValues)
 void CalculateSP02(unsigned int* meanSPO2, unsigned long rms_AC_Red, unsigned long rms_AC_Infra)
 {
     unsigned int R;
-    unsigned int SPO2Taken; //Right Shift
+    const unsigned int SPO2Taken = 2; //Right Shift
     unsigned int SPO2Level;
 
     WaitCalcSP02 = 1;
 
-    SPO2Taken = 2;
-
-    //sqrtZaehler = sqrt(rms_AC_Red);
-    //zaehler = log(sqrtZaehler);
-    //sqrtNenner = sqrt(rms_AC_Infra);
-    //nenner = log(sqrtNenner);
     if(rms_AC_Infra != 0)
     {
-        //  Possibiltiy 2
         R = log((rms_AC_Red))/log((rms_AC_Infra))*100; //when DC_Red =~ DC_Infra
 
-        SPO2Level =  R;
-        //SP02Level = SP02[R];
+        if(R >= (sizeof(SPO2Lookup)/sizeof(SPO2Lookup[0])))
+        {
+            WaitCalcSP02 = 0;
+            return;
+        }
+
+        SPO2Level = SPO2Lookup[R];
 
         *meanSPO2 += (SPO2Level >> SPO2Taken); //We take an Average of 4 Values to Calculate the Sp02 Level
     }
@@ -573,7 +587,7 @@ void CalculateSP02(unsigned int* meanSPO2, unsigned long rms_AC_Red, unsigned lo
 
 int CaluclateBPM(int samples)
 {
-    unsigned int samplesBPM = 250;; //Per 1 sec we take roughly 250 samples of the red LED
+    const unsigned int samplesBPM = 250; //Per 1 sec we take roughly 250 samples of the red LED
     unsigned int numOfMaxTaken = 4;
 ;
     unsigned int bpm;
@@ -586,21 +600,23 @@ int CaluclateBPM(int samples)
 
 void InitLCDPins(void)
 {
-    P1SEL0 |= LCD5110_DN_PIN | LCD5110_SCLK_PIN;
-    P1OUT &= ~BIT0;
+    P4SEL0 |= LCD5110_DN_PIN | LCD5110_SCLK_PIN;
 
-    P6OUT |= LCD5110_SCE_PIN;
-    P6DIR |= LCD5110_SCE_PIN;
+    P6DIR |= BIT0 | BIT1;
+    P6OUT |= BIT0 | BIT1;
 
-    P1OUT |= LCD5110_DC_PIN;  // Disable LCD, set Data mode
-    P1DIR |= LCD5110_DC_PIN;  // Set pins to output direction
+    P4OUT |= LCD5110_SCE_PIN;
+    P4DIR |= LCD5110_SCE_PIN;
 
-    UCA0CTLW0 |= UCSWRST;                     // **Put state machine in reset**
-    UCA0CTLW0 |= UCMST|UCSYNC|UCCKPH|UCMSB;   // 3-pin, 8-bit SPI master
-    UCA0CTLW0 |= UCSSEL_3; // SMCLK
-    UCA0BRW   |= 0; //1:1
+    P4OUT |= LCD5110_DC_PIN;
+    P4DIR |= LCD5110_DC_PIN;
 
-    UCA0CTLW0 &= ~UCSWRST;
+    UCA1CTLW0 |= UCSWRST;                     // **Put state machine in reset**
+    UCA1CTLW0 |= UCMST|UCSYNC|UCCKPH|UCMSB;   // 3-pin, 8-bit SPI master
+    UCA1CTLW0 |= UCSSEL_3; // SMCLK
+    UCA1BRW   |= 0; //1:1
+
+    UCA1CTLW0 &= ~UCSWRST;
 }
 
 //Just do it every 100ms
@@ -649,8 +665,8 @@ void writeToLCD(unsigned char dataCommand, unsigned char data) {
         LCD5110_SET_COMMAND;
     }
 
-    UCA0TXBUF  = data;
-    while(!(UCTXIFG & UCA0IFG ))
+    UCA1TXBUF  = data;
+    while(!(UCTXIFG & UCA1IFG ))
 
     LCD5110_DESELECT;
 }
