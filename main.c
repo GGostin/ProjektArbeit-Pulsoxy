@@ -242,9 +242,11 @@ void main(void) {
 
     __bis_SR_register(GIE);
 
+    char c;
 
     while(1)
     {
+
         if(StartStepA)
         {
             P1OUT |= BIT0;
@@ -633,7 +635,7 @@ void LCDWriteStatusValues(unsigned int SPO2, unsigned int bpm, unsigned int batt
 {
 
     WriteFatNumbers(SPO2, 0);
-    WriteFatNumbers(bpm, 48);
+    WriteFatNumbers(bpm, 42);
 
     setAddr(38,5);
     writeBattery(battStatus);
@@ -716,12 +718,13 @@ void clearBank(unsigned char bank) {
 void WriteFatNumbers(unsigned int value, unsigned int offset)
 {
    unsigned int num[3]; // 103 => num[0]=1 , num[1]=0, num[2]=3
+   unsigned char numValid[3] = 0;
    unsigned int firstColumn = 10 + offset; //StartColumn for two Numbers
    unsigned int i,j,k;
-   char** fatNum = FatNumber_Upper;
 
+   clearBank(2);
    clearBank(3);
-   clearBank(4);
+
 
    if(value >= 100)
    {
@@ -730,39 +733,50 @@ void WriteFatNumbers(unsigned int value, unsigned int offset)
        num[2] = (value % 10);
        firstColumn -= 4; //StartColum gets reduced to 6 far left and right.
    }
-   else
+   else if(value >= 10 && value < 100)
    {
        num[0] = 0;
        num[1] = (value / 10);
        num[2] = (value % 10);
    }
-   //First write Upper Number Part
-   setAddr(firstColumn, 3);
-   for(k = 0; k< 2; k++)
+   else
    {
-       for(j = 0; j< 3; j++)
-       {
-           if(num[j] != 0)
-           {
-               for(i = 0; i < 10; i ++)
-               {
-                   writeToLCD(LCD5110_DATA,FatNumber_Upper[j][i]);
+       num[0] = 0;
+       num[1] = 0;
+       num[2] = value;
+       firstColumn += 7;
+   }
+   numValid[0] = num[0] > 0 ? 1: 0;
+   if(num[1] >0 || (num[1] == 0 && num[0] != 0)) numValid[1] = 1;
+   if(num[2] >0 || (num[1] == 0 || num[0] == 0) && num[2] == 0) numValid[2] = 1;
 
-               }
-               //Two Spaces between Numbers
-               writeToLCD(LCD5110_DATA,0);
-               writeToLCD(LCD5110_DATA,0);
+   //First write Upper Number Part
+   setAddr(firstColumn, 2);
+
+       for(j = 0; j < 3; j++)
+       {
+           if(numValid[j])
+           {
+
+              for(i = 0; i < 10; i ++)
+              {
+                 writeToLCD(LCD5110_DATA,FatNumber_Upper[num[j]][i]);
+
+              }
+              //Two Spaces between Numbers
+              writeToLCD(LCD5110_DATA,0);
+              writeToLCD(LCD5110_DATA,0);
            }
        }
        //For Second Iteration write Lower Numbers
-       setAddr(firstColumn, 4);
+       setAddr(firstColumn, 3);
        for(j = 0; j< 3; j++)
        {
-           if(num[j] != 0)
+           if(numValid[j])
            {
                for(i = 0; i < 10; i ++)
                {
-                   writeToLCD(LCD5110_DATA,FatNumber_Lower[j][i]);
+                   writeToLCD(LCD5110_DATA,FatNumber_Lower[num[j]][i]);
 
                }
                //Two Spaces between Numbers
@@ -770,7 +784,6 @@ void WriteFatNumbers(unsigned int value, unsigned int offset)
                writeToLCD(LCD5110_DATA,0);
            }
        }
-   }
 
 }
 
