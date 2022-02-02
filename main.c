@@ -44,7 +44,7 @@ unsigned int WaitCalcSP02 = 0;
 unsigned int StartStepA   = 0;
 unsigned int StartStepB   = 0;
 
-static unsigned int MaxIntensity = 10;
+static unsigned int MaxIntensity = 10*MCLK_FREQ_MHZ;
 
 
 //Question is. Do both need to be changed?
@@ -108,6 +108,9 @@ void LCDWriteGraph(unsigned int sample, int row);
 
 unsigned int ConvertADCValueToVoltage(unsigned int value);
 
+void WriteFatNumbers(unsigned int value,unsigned int offset);
+
+
 void InitPins(void);
 
 void main(void) {
@@ -151,6 +154,7 @@ void main(void) {
     unsigned int meanSPO2 = 0;
 
 
+
     FRCTL0 = FRCTLPW | NWAITS_1;
 
     __bis_SR_register(SCG0);                           // disable FLL
@@ -163,6 +167,7 @@ void main(void) {
 
      CSCTL4 = SELMS__DCOCLKDIV | SELA__REFOCLK;        // set default REFO(~32768Hz) as ACLK source, ACLK = 32768Hz
                                                        // default DCOCLKDIV as MCLK and SMCLK source
+
 
     //Configuration for ADC Pin start on DC for RED (A3, P1.3)
     //Later each ADC Pin (A1, A3, A10, A11) is configured and triggered manually
@@ -181,9 +186,9 @@ void main(void) {
     //ADCIE |= ADCIE0;
 
     InitLCDPins();
-    __delay_cycles(300000*MCLK_FREQ_MHZ); // we have to wait a bit for the LCD to boot up.
-    initLCD();
-    clearLCD();
+    __delay_cycles(300000*MCLK_FREQ_MHZ);
+
+
 
 
     //Use PIn 5.0 and 5.1 for switching the LEDs
@@ -202,19 +207,24 @@ void main(void) {
     //Two PWM for Intensity
     //P6.3 and P6.4
 
+   // P2DIR |= BIT5;
+   // P2OUT |= BIT5;
+
     P6DIR  |= BIT3 | BIT4;
     P6SEL0 |= BIT3 | BIT4;
 
-    TB3CCR0   = MaxIntensity*10;
+    TB3CCR0   = MaxIntensity;
     TB3CCTL4 |= OUTMOD_7;
     TB3CCTL5 |= OUTMOD_7;
-    TB3CCR4   = (MaxIntensity>>1)*10;
-    TB3CCR5   = (MaxIntensity>>1)*10;
+    TB3CCR4   = (MaxIntensity)-159;
+    TB3CCR5   = (MaxIntensity)-159;
     TB3CTL   |= TBSSEL__SMCLK  | MC__UP | TBCLR; //Up-Mode
 
     PM5CTL0 &= ~LOCKLPM5; //Without this the pins won't be configured in Hardware.
     TB2CTL &= ~TBIFG;
     TB2CCTL0 &= ~CCIFG;
+    initLCD();
+    clearLCD();
 
     setAddr(8,0);
     writeStringToLCD("SPO2");
@@ -222,17 +232,13 @@ void main(void) {
     setAddr(60,0);
     writeStringToLCD("bpm");
 
-    setAddr(10,3);
-    writeStringToLCD("94%");
-    setAddr(62,3);
-    writeStringToLCD("62");
 
     clearBank(5);
     setAddr(38,5);
     writeBattery(BATTERY_FULL);
 
     //Wait a second for everything to start
-    __delay_cycles(1000000*MCLK_FREQ_MHZ);
+    //__delay_cycles(1000000*MCLK_FREQ_MHZ);
 
     __bis_SR_register(GIE);
 
@@ -492,6 +498,8 @@ int CheckLEDIntensity(int changeValues)
     int ret = DATAVALID;
 
 
+    TB3CTL &= ~MC_0;
+
     if(changeValues)
     {
         //Disable both PWM
@@ -619,35 +627,15 @@ void InitLCDPins(void)
     UCA1CTLW0 &= ~UCSWRST;
 }
 
-//Just do it every 100ms
-//Based on the current sample we draw it to the 5 row.
-//We have only 8 Pixels  per Row
-void LCDWriteGraph(unsigned int sample, int row)
-{
-
-
-
-
-}
 
 //Writes everything needed that needs to be updated
 void LCDWriteStatusValues(unsigned int SPO2, unsigned int bpm, unsigned int battStatus)
 {
-    char spo2[4];
-    char sbpm[4];
 
-    sprintf(spo2,"%d",SPO2);
-    sprintf(sbpm,"%d", bpm);
+    WriteFatNumbers(SPO2, 0);
+    WriteFatNumbers(bpm, 48);
 
-    clearBank(3);
-    clearBank(4);
-
-    setAddr(3,24);
-    writeStringToLCD(spo2);
-    setAddr(42,24);
-    writeStringToLCD(sbpm);
-
-    setAddr(0,48);
+    setAddr(38,5);
     writeBattery(battStatus);
 }
 
@@ -725,6 +713,68 @@ void clearBank(unsigned char bank) {
     setAddr(0, bank);
 }
 
+void WriteFatNumbers(unsigned int value, unsigned int offset)
+{
+   unsigned int num[3]; // 103 => num[0]=1 , num[1]=0, num[2]=3
+   unsigned int firstColumn = 10 + offset; //StartColumn for two Numbers
+   unsigned int i,j,k;
+   char** fatNum = FatNumber_Upper;
+
+   clearBank(3);
+   clearBank(4);
+
+   if(value >= 100)
+   {
+       num[0] = 1;
+       num[1] = (value -100) / 10;
+       num[2] = (value % 10);
+       firstColumn -= 4; //StartColum gets reduced to 6 far left and right.
+   }
+   else
+   {
+       num[0] = 0;
+       num[1] = (value / 10);
+       num[2] = (value % 10);
+   }
+   //First write Upper Number Part
+   setAddr(firstColumn, 3);
+   for(k = 0; k< 2; k++)
+   {
+       for(j = 0; j< 3; j++)
+       {
+           if(num[j] != 0)
+           {
+               for(i = 0; i < 10; i ++)
+               {
+                   writeToLCD(LCD5110_DATA,FatNumber_Upper[j][i]);
+
+               }
+               //Two Spaces between Numbers
+               writeToLCD(LCD5110_DATA,0);
+               writeToLCD(LCD5110_DATA,0);
+           }
+       }
+       //For Second Iteration write Lower Numbers
+       setAddr(firstColumn, 4);
+       for(j = 0; j< 3; j++)
+       {
+           if(num[j] != 0)
+           {
+               for(i = 0; i < 10; i ++)
+               {
+                   writeToLCD(LCD5110_DATA,FatNumber_Lower[j][i]);
+
+               }
+               //Two Spaces between Numbers
+               writeToLCD(LCD5110_DATA,0);
+               writeToLCD(LCD5110_DATA,0);
+           }
+       }
+   }
+
+}
+
+
 void Software_Trim()
 {
     unsigned int oldDcoTap = 0xffff;
@@ -793,3 +843,4 @@ void Software_Trim()
     CSCTL1 = csCtl1Copy;                       // Reload locked DCOFTRIM
     while(CSCTL7 & (FLLUNLOCK0 | FLLUNLOCK1)); // Poll until FLL is locked
 }
+
