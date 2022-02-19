@@ -2,6 +2,7 @@
 #include <math.h>
 #include "PCD8544.h"
 #include <stdio.h>
+#include <string.h>
 
 //LDC PIN DEFINES
 #define LCD5110_SCLK_PIN            BIT1
@@ -22,12 +23,6 @@
 #define MINBATT     2
 #define CRITBATT    1
 
-#define DATAVALID   6
-#define DATAWAIT    7
-
-#define CHANGEINTENSITY 1
-#define KEEPINTENSITY   0
-
 #define MCLK_FREQ_MHZ 16                     // MCLK = 16MHz
 
 #define RED 0
@@ -39,20 +34,15 @@ unsigned int ADCValue[8];//
 unsigned int SPO2Lookup[] = {100, 100,100, 100, 100, 100, 100, 100, 99 , 99 , 99 , 99 , 98 , 98  ,98 , 98,  98  ,97 , 97  ,97, 97,  96  ,96 , 96,  95  ,95 , 95,  95  ,94 , 94,  94,  94,  93,  93,  93,  92,  92,  92,  91,  91,  91,  90,  90,  90,  89,  89,  89,  88,  88,  88,  87,  87,  87 ,86 , 86,  86  ,85 , 85,  84  ,84 , 84,  83  ,83 , 83,  82  ,82 , 81,  81  ,81 , 80,  80  ,79 , 79,  79  ,78 , 78,  77,  77, 76 , 76 , 75 , 75 , 75 , 74 , 74 , 73 , 73 , 72 , 72 , 71 , 71 , 70 , 70 , 69 , 69 , 68 , 68 , 67 , 67 , 66 , 66 , 65 , 65 , 64 , 64 , 63 , 63 , 62 , 62 , 61 , 61 , 60 , 60 , 59 , 59 , 58 , 57 ,57  ,56  ,56  ,55  ,55  ,54  ,53  ,53  ,52  ,52  ,51  ,51  ,50  ,49  ,49  ,48  ,48  ,47  ,46  ,46  ,45  ,44  ,44  ,43  ,43  ,42  ,41  ,41  ,40  ,39  ,39  ,38  ,37  ,37};
 
 
-unsigned int WaitCalcSP02 = 0;
-
 unsigned int StartStepA   = 0;
 unsigned int StartStepB   = 0;
 
+unsigned int UnlockA = 0;
+unsigned int UnlockB = 0;
+
 static unsigned int MaxIntensity = 10*MCLK_FREQ_MHZ;
 
-
-//Question is. Do both need to be changed?
-//I could argue that one is enough because the other will probably be around the same value
-const static unsigned int HTresholdRed = 0x0FFF;
-const static unsigned int LTresholdRed = 0;
-const static unsigned int HTresholdInfra = 0x0FFF;
-const static unsigned int LTresholdInfra = 0;
+unsigned int lastBattFlag = 0;
 
 
 typedef enum TagDirection
@@ -63,12 +53,9 @@ typedef enum TagDirection
 
 typedef struct TagMinMax
 {
-    unsigned int Max;
-    unsigned int Min;
-    unsigned int LastValue[5];
-    unsigned int NumOfPeaks;
-    unsigned int I;
-    unsigned int Dir;
+    unsigned int NumZeroCrossing;
+    unsigned int SampleNum;
+    unsigned int WaitCycles;
 }MinMax;
 
 typedef struct TagLEDValues
@@ -97,10 +84,9 @@ void GetTemp(unsigned int* meanTemp);
 void GetBatteryVoltage(unsigned int* lcdBattFlag);
 
 //Checks the Threshold for either red or infrared.
-//Tries to keep it in a range by changing the PWM that controls the Intensity
-int CheckLEDIntensity(int changeValues);
+int CheckLEDIntensity(int sample);
 
-void MinMaxDetection(MinMax* detect, unsigned int sample);
+void CheckZeroCrossing(MinMax* detect, unsigned int sample);
 void CalculateSP02(unsigned int* meanSPO2, unsigned long rms_AC_RED, unsigned long rms_AC_Infra);
 int CaluclateBPM(int samples);
 void LCDWriteStatusValues(unsigned int SPO2, unsigned int bpm, unsigned int battStatus);
@@ -110,28 +96,34 @@ unsigned int ConvertADCValueToVoltage(unsigned int value);
 
 void WriteFatNumbers(unsigned int value,unsigned int offset);
 
-
 void InitPins(void);
 
 void main(void) {
+
+
 
     WDTCTL = WDTPW | WDTHOLD;           // Stop watchdog timer
 
     InitPins();
 
-    MinMax maxDetect = {0};
-    maxDetect.Dir = Falling;
+    int counter = 0;
+    int errCounter = 0;
 
+    MinMax maxDetect = {0};
+
+    long DiffAC = 0;
     unsigned int sampleDC = 0;
     unsigned int sampleAC = 0;
 
     unsigned int i = 0;
-    unsigned int samplesHBeat = 0;
     unsigned int updLCD = 0;
     unsigned int bpm =0;
     unsigned int firstIterationOver = 0;
-    unsigned int changeIntensity = CHANGEINTENSITY;
     unsigned int iterIntensity = 0;
+    unsigned int validCounter = 0; // CHeck every second // around 250 Values if current Data is Valid or Invalid, Check is counter > 50 or ErrCounter > 25
+
+    UnlockA = 1;
+    UnlockB = 1;
 
     int ret = 0;
 
@@ -140,7 +132,6 @@ void main(void) {
     //##TestPIN
     P1DIR |= BIT0;
     //##TestPIN
-
 
     LEDValues red;
     red.MeanDC = 0;
@@ -152,8 +143,7 @@ void main(void) {
     unsigned int meanTemp = 0;
     unsigned int lcdBattFlag = 0;
     unsigned int meanSPO2 = 0;
-
-
+    unsigned int lastMeanSPO2 = 0;
 
     FRCTL0 = FRCTLPW | NWAITS_1;
 
@@ -186,9 +176,7 @@ void main(void) {
     //ADCIE |= ADCIE0;
 
     InitLCDPins();
-    __delay_cycles(300000*MCLK_FREQ_MHZ);
-
-
+    __delay_cycles(700000*MCLK_FREQ_MHZ);
 
 
     //Use PIn 5.0 and 5.1 for switching the LEDs
@@ -216,8 +204,8 @@ void main(void) {
     TB3CCR0   = MaxIntensity;
     TB3CCTL4 |= OUTMOD_7;
     TB3CCTL5 |= OUTMOD_7;
-    TB3CCR4   = (MaxIntensity)-159;
-    TB3CCR5   = (MaxIntensity)-159;
+    TB3CCR4   = 10;
+    TB3CCR5   = 10;
     TB3CTL   |= TBSSEL__SMCLK  | MC__UP | TBCLR; //Up-Mode
 
     PM5CTL0 &= ~LOCKLPM5; //Without this the pins won't be configured in Hardware.
@@ -233,8 +221,8 @@ void main(void) {
     writeStringToLCD("bpm");
 
 
-    clearBank(5);
-    setAddr(38,5);
+    clearBank(4);
+    setAddr(38,4);
     writeBattery(BATTERY_FULL);
 
     //Wait a second for everything to start
@@ -249,90 +237,102 @@ void main(void) {
 
         if(StartStepA)
         {
+            StartStepA = 0;
             P1OUT |= BIT0;
             GetDiodeADC(RED);
 
             //Take RMS of AC and Mean of DC
             sampleDC = ADCValue[RED];
-            sampleAC = ADCValue[RED];
-
-            red.RmsAC = ((unsigned long)sampleAC)*sampleAC; //Div by 8 makes it easier
-            red.RmsAC += red.RmsAC >>8;
+            sampleAC = ADCValue[RED+1];
+            DiffAC = (long)((long)sampleAC - sampleDC);
+            red.RmsAC += (DiffAC * DiffAC);
             red.MeanDC += (unsigned long)sampleDC >> 8;
 
-            GetTemp(&meanTemp);
 
-            ret = CheckLEDIntensity(changeIntensity);
+            ret = CheckLEDIntensity(sampleAC);
 
-            if(firstIterationOver && ret == DATAVALID)
+            if(!ret)
             {
-                samplesHBeat++;
-                MinMaxDetection(&maxDetect, sampleAC);
+                errCounter++;
+                counter = 0;
+                memset(&maxDetect,0,sizeof(maxDetect));
+                memset(&red,0,sizeof(red));
+                memset(&infra,0,sizeof(infra));
+            }
 
-                if (i == 100)
+                CheckZeroCrossing(&maxDetect, sampleAC);
+
+                if (counter == 100)
                 {
                     GetBatteryVoltage(&lcdBattFlag);
                 }
 
-                if(maxDetect.NumOfPeaks == 5)
+                if(maxDetect.NumZeroCrossing == 6)
                 {
-                    bpm = CaluclateBPM(samplesHBeat);
-                    samplesHBeat = 0;
-                    maxDetect.NumOfPeaks = 0;
+                    bpm = CaluclateBPM(maxDetect.SampleNum);
+                    memset(&maxDetect,0,sizeof(maxDetect));
                 }
 
-                if(i == 250)
+                if(counter == 250)
                 {
-                    i = 0;
                     updLCD = 1;
                     CalculateSP02(&meanSPO2, red.RmsAC, infra.RmsAC);
-                    //meanSPO2++;
+
                 }
 
-            }
-            else
-            {
-                //We wait for like 100 ms and check again, this here is called every 2 ms so we wait 50 Cycles;
-                changeIntensity = KEEPINTENSITY;
-                iterIntensity++;
-                if(iterIntensity == 50)
-                {
-                    changeIntensity = CHANGEINTENSITY;
-                }
-            }
-            //Do we need this ??
-            //GetDiodeADC(DCOFF);
+                UnlockA = 0;
+                UnlockB = 1;
 
-            P1OUT &= ~BIT0;
-            StartStepA = 0;
 
         }
         else if(StartStepB)
         {
-
+            StartStepB = 0;
             GetDiodeADC(INFRA);
             sampleDC = ADCValue[INFRA];
-            sampleAC = ADCValue[INFRA];
+            sampleAC = ADCValue[INFRA+1];
+            DiffAC = (long)((long)sampleAC - sampleDC);
 
-            infra.RmsAC  += (long)(sampleAC*sampleAC) >> 8; //Div by 8 makes it easier
+            infra.RmsAC  += (DiffAC* DiffAC);
             infra.MeanDC += (long)sampleDC >> 8;
 
-            i++;
+            counter++;
+            validCounter++;
+            if(errCounter == 1000)
+            {
+                clearBank(2);
+                clearBank(3);
+                setAddr(0,2);
+                writeStringToLCD("Error Signal");
+                errCounter = 0;
+            }
+
             if(updLCD)
             {
-                LCDWriteStatusValues(meanSPO2, bpm, lcdBattFlag);
-                updLCD = 0;
-                red.MeanDC  = 0;
-                red.RmsAC   = 0;
-                red.MeanDC  = 0;
-                infra.RmsAC = 0;
-                meanSPO2 = 0;
-                //Send the Data via SPI.
-            }
-            firstIterationOver = 1;
+                if(!meanSPO2) meanSPO2 = lastMeanSPO2;
 
-            //P1OUT &= ~BIT0;
-            StartStepB = 0;
+                LCDWriteStatusValues(meanSPO2, bpm, lcdBattFlag);
+
+                memset(&red,0,sizeof(red));
+                memset(&infra,0,sizeof(infra));
+
+                updLCD = 0;
+                lastMeanSPO2 = meanSPO2;
+                meanSPO2 = 0;
+                counter = 0;
+            }
+
+            if(validCounter == 250)
+            {
+                setAddr(0,5);
+                if(errCounter >= 125) writeStringToLCD("D.NV");
+                else clearBank(5);
+
+                validCounter = 0;
+            }
+
+            UnlockA = 1;
+            UnlockB = 0;
 
         }
     }
@@ -345,12 +345,11 @@ __interrupt void TIMER2_B0_ISR(void)
 {
     TB2CCTL0 &= ~CCIFG;
 
-    if(!WaitCalcSP02)
+    if(UnlockA == 1)
     {
         StartStepA = 1;
     }
 
-    //_bic_SR_register_on_exit(LPM0);
 }
 
 
@@ -358,12 +357,12 @@ __interrupt void TIMER2_B0_ISR(void)
 __interrupt void TIMER2_B1_ISR(void)
 {
     TB2CTL &= ~TBIFG;
-    if(!WaitCalcSP02)
+    if(UnlockB == 1)
     {
     StartStepB = 1;
     }
     //P1OUT |= BIT0;
-    //_bic_SR_register_on_exit(LPM0);
+
 }
 
 
@@ -383,26 +382,24 @@ void InitPins(void)
 }
 
 //Check the maximum
-void MinMaxDetection(MinMax* detect, unsigned int sample)
+void CheckZeroCrossing(MinMax* detect, unsigned int sample)
 {
-    unsigned int check;
-    unsigned int* i = &detect->I;
-    detect->LastValue[*i] = sample;
-    (*i)++;
 
-    if(*i==5)
+    //The AC Value floats around the DC Value of 1.56 V ~ 1930
+    int diff = sample - 1930;
+
+    detect->SampleNum++;
+    if(detect->WaitCycles == 0)
     {
-        check = detect->LastValue[0];
-        if(check > detect->LastValue[1] && check > detect->LastValue[2] && check > detect->LastValue[3] && check > detect->LastValue[4] && detect->Dir == Rising)
+        if(diff > -22 && diff < 22)
         {
-            detect->NumOfPeaks++;
-            detect->Dir = Falling;
+            detect->NumZeroCrossing++;
+            detect->WaitCycles = 50; //Wait a bit to be sure we are not near the "Zero Crossing"
         }
-        else if(check < detect->LastValue[1] && check < detect->LastValue[2] && check < detect->LastValue[3] && check < detect->LastValue[4])
-        {
-            detect->Dir = Rising;
-        }
-        *i = 0;
+
+    }
+    else{
+       detect->WaitCycles--;
     }
 
 }
@@ -494,79 +491,17 @@ void GetBatteryVoltage(unsigned int* lcdBattFlag)
 //Maybe even more. Its need to be evaluated during testing.
 //
 //We need to differentiate when we pull out the finger. This will lead to a maximum, Minum
-int CheckLEDIntensity(int changeValues)
+int CheckLEDIntensity(int sample)
 {
-
-    int ret = DATAVALID;
-
-
-    TB3CTL &= ~MC_0;
-
-    if(changeValues)
+        // In Range  1.61  V to 1.45 V
+    if(sample > 2800  || sample < 1200)
     {
-        //Disable both PWM
-        TB3CTL &= ~MC_0;
+        return 0;
     }
 
-    if(ADCValue[ACRED] < LTresholdRed)
-    {
-        ret = DATAWAIT;
+    return 1;
 
-        if(changeValues)
-        {
-            TB3CCR4++;
-            if(TB3CCR4 >= MaxIntensity)
-            {
-                TB3CCR4 = MaxIntensity;
-            }
-        }
-    }
-    else if(ADCValue[ACRED] > HTresholdRed)
-    {
-        ret = DATAWAIT;
-        if(changeValues)
-        {
-            TB3CCR4--;
-            if(TB3CCR4 <= 1)
-            {
-                TB3CCR4 = 1;
-            }
-        }
-    }
 
-    if(ADCValue[ACRED] < LTresholdInfra)
-    {
-        ret = DATAWAIT;
-
-        if(changeValues)
-        {
-            TB3CCR5++;
-            if(TB3CCR5 >= MaxIntensity)
-            {
-                TB3CCR5 = MaxIntensity;
-            }
-        }
-    }
-    else if(ADCValue[ACRED] > HTresholdInfra)
-    {
-        ret = DATAWAIT;
-
-        if(changeValues)
-        {
-            TB3CCR5--;
-            if(TB3CCR5 <= 1)
-            {
-                TB3CCR5 = 1;
-            }
-        }
-    }
-
-    //Dont Forget to start the timer again.
-    if(changeValues)
-    {
-        TB3CTL |= MC__UP;
-    }
-    return ret;
 }
 
 void CalculateSP02(unsigned int* meanSPO2, unsigned long rms_AC_Red, unsigned long rms_AC_Infra)
@@ -575,7 +510,6 @@ void CalculateSP02(unsigned int* meanSPO2, unsigned long rms_AC_Red, unsigned lo
     const unsigned int SPO2Taken = 2; //Right Shift
     unsigned int SPO2Level;
 
-    WaitCalcSP02 = 1;
 
     if(rms_AC_Infra != 0)
     {
@@ -583,7 +517,6 @@ void CalculateSP02(unsigned int* meanSPO2, unsigned long rms_AC_Red, unsigned lo
 
         if(R >= (sizeof(SPO2Lookup)/sizeof(SPO2Lookup[0])))
         {
-            WaitCalcSP02 = 0;
             return;
         }
 
@@ -592,18 +525,17 @@ void CalculateSP02(unsigned int* meanSPO2, unsigned long rms_AC_Red, unsigned lo
         *meanSPO2 += (SPO2Level >> SPO2Taken); //We take an Average of 4 Values to Calculate the Sp02 Level
     }
 
-    WaitCalcSP02 = 0;
 }
 
 int CaluclateBPM(int samples)
 {
     const unsigned int samplesBPM = 250; //Per 1 sec we take roughly 250 samples of the red LED
     unsigned int numOfMaxTaken = 4;
-;
+
     unsigned int bpm;
 
 
-    bpm = (samplesBPM* 60)/(samples/numOfMaxTaken);
+    bpm = (samplesBPM* 60 *numOfMaxTaken)/samples;
     return bpm;
 }
 
@@ -634,11 +566,18 @@ void InitLCDPins(void)
 void LCDWriteStatusValues(unsigned int SPO2, unsigned int bpm, unsigned int battStatus)
 {
 
+    clearBank(2);
+    clearBank(3);
     WriteFatNumbers(SPO2, 0);
     WriteFatNumbers(bpm, 42);
 
-    setAddr(38,5);
-    writeBattery(battStatus);
+    if(lastBattFlag =! battStatus)
+    {
+        setAddr(38,4);
+        writeBattery(battStatus);
+    }
+
+    lastBattFlag =  battStatus;
 }
 
 void setAddr(unsigned char xAddr, unsigned char yAddr) {
@@ -718,12 +657,9 @@ void clearBank(unsigned char bank) {
 void WriteFatNumbers(unsigned int value, unsigned int offset)
 {
    unsigned int num[3]; // 103 => num[0]=1 , num[1]=0, num[2]=3
-   unsigned char numValid[3] = 0;
+   unsigned char numValid[3];
    unsigned int firstColumn = 10 + offset; //StartColumn for two Numbers
    unsigned int i,j,k;
-
-   clearBank(2);
-   clearBank(3);
 
 
    if(value >= 100)
