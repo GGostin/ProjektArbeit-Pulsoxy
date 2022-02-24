@@ -40,35 +40,39 @@ typedef enum
     LIPO
 } ADCTYPE;
 unsigned int ADCValue[8]; //
-// unsigned int SPO2Lookup[] = {100, 100, 100, 100, 100, 100, 100, 100, 99, 99, 99, 99, 98, 98, 98, 98, 98, 97, 97, 97, 97, 96, 96, 96, 95, 95, 95, 95, 94, 94, 94, 94, 93, 93, 93, 92, 92, 92, 91, 91, 91, 90, 90, 90, 89, 89, 89, 88, 88, 88, 87, 87, 87, 86, 86, 86, 85, 85, 84, 84, 84, 83, 83, 83, 82, 82, 81, 81, 81, 80, 80, 79, 79, 79, 78, 78, 77, 77, 76, 76, 75, 75, 75, 74, 74, 73, 73, 72, 72, 71, 71, 70, 70, 69, 69, 68, 68, 67, 67, 66, 66, 65, 65, 64, 64, 63, 63, 62, 62, 61, 61, 60, 60, 59, 59, 58, 57, 57, 56, 56, 55, 55, 54, 53, 53, 52, 52, 51, 51, 50, 49, 49, 48, 48, 47, 46, 46, 45, 44, 44, 43, 43, 42, 41, 41, 40, 39, 39, 38, 37, 37};
-const int SPO2Lookup[184] = {95, 95, 95, 96, 96, 96, 97, 97, 97, 97, 97, 98, 98, 98, 98, 98, 99, 99, 99, 99,
-                             99, 99, 99, 99, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
-                             100, 100, 100, 100, 99, 99, 99, 99, 99, 99, 99, 99, 98, 98, 98, 98, 98, 98, 97, 97,
-                             97, 97, 96, 96, 96, 96, 95, 95, 95, 94, 94, 94, 93, 93, 93, 92, 92, 92, 91, 91,
-                             90, 90, 89, 89, 89, 88, 88, 87, 87, 86, 86, 85, 85, 84, 84, 83, 82, 82, 81, 81,
-                             80, 80, 79, 78, 78, 77, 76, 76, 75, 74, 74, 73, 72, 72, 71, 70, 69, 69, 68, 67,
-                             66, 66, 65, 64, 63, 62, 62, 61, 60, 59, 58, 57, 56, 56, 55, 54, 53, 52, 51, 50,
-                             49, 48, 47, 46, 45, 44, 43, 42, 41, 40, 39, 38, 37, 36, 35, 34, 33, 31, 30, 29,
-                             28, 27, 26, 25, 23, 22, 21, 20, 19, 17, 16, 15, 14, 12, 11, 10, 9, 7, 6, 5,
-                             3, 2, 1};
+//unsigned int SPO2Lookup[] = {100, 100, 100, 100, 100, 100, 100, 100, 99, 99, 99, 99, 98, 98, 98, 98, 98, 97, 97, 97, 97, 96, 96, 96, 95, 95, 95, 95, 94, 94, 94, 94, 93, 93, 93, 92, 92, 92, 91, 91, 91, 90, 90, 90, 89, 89, 89, 88, 88, 88, 87, 87, 87, 86, 86, 86, 85, 85, 84, 84, 84, 83, 83, 83, 82, 82, 81, 81, 81, 80, 80, 79, 79, 79, 78, 78, 77, 77, 76, 76, 75, 75, 75, 74, 74, 73, 73, 72, 72, 71, 71, 70, 70, 69, 69, 68, 68, 67, 67, 66, 66, 65, 65, 64, 64, 63, 63, 62, 62, 61, 61, 60, 60, 59, 59, 58, 57, 57, 56, 56, 55, 55, 54, 53, 53, 52, 52, 51, 51, 50, 49, 49, 48, 48, 47, 46, 46, 45, 44, 44, 43, 43, 42, 41, 41, 40, 39, 39, 38, 37, 37};
+ const int SPO2Lookup[184] = {95, 95, 95, 96, 96, 96, 97, 97, 97, 97, 97, 98, 98, 98, 98, 98, 99, 99, 99, 99,                              99, 99, 99, 99, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
+                              100, 100, 100, 100, 99, 99, 99, 99, 99, 99, 99, 99, 98, 98, 98, 98, 98, 98, 97, 97,
+                              97, 97, 96, 96, 96, 96, 95, 95, 95, 94, 94, 94, 93, 93, 93, 92, 92, 92, 91, 91,
+                              90, 90, 89, 89, 89, 88, 88, 87, 87, 86, 86, 85, 85, 84, 84, 83, 82, 82, 81, 81,
+                              80, 80, 79, 78, 78, 77, 76, 76, 75, 74, 74, 73, 72, 72, 71, 70, 69, 69, 68, 67,
+                              66, 66, 65, 64, 63, 62, 62, 61, 60, 59, 58, 57, 56, 56, 55, 54, 53, 52, 51, 50,
+                              49, 48, 47, 46, 45, 44, 43, 42, 41, 40, 39, 38, 37, 36, 35, 34, 33, 31, 30, 29,
+                              28, 27, 26, 25, 23, 22, 21, 20, 19, 17, 16, 15, 14, 12, 11, 10, 9, 7, 6, 5,
+                              3, 2, 1};
 unsigned int StartStepA = 0;
 unsigned int StartStepB = 0;
 
 unsigned int UnlockA = 0;
 unsigned int UnlockB = 0;
 
-static unsigned int MaxIntensity = 10 * MCLK_FREQ_MHZ;
+static unsigned int MaxIntensity = 25 * MCLK_FREQ_MHZ;
 
 static unsigned int IntensityChangeRate = 5;
-unsigned int RedIntensity = 10;
-unsigned int InfraIntensity = 25;
+int MaxRedIntens = 60;
+int MaxInfraIntens = 60;
+int RedIntensity = 60;
+int InfraIntensity = 60;
 
+int CalcSpO2Cylce = 250;
 
+unsigned int debugR = 0;
+unsigned int debugR2 = 0;
+unsigned int intensityLocked;
 
 unsigned int lastBattFlag = 0;
 
 unsigned int lastMinAC = 0;
-
 
 typedef struct TagMinMax
 {
@@ -102,20 +106,27 @@ typedef struct TagBPM
     MinMax Infra;
 } BPM;
 
-unsigned int debugR;
 
-void ChangeIntensity()
+
+void ChangeIntensity(unsigned int redDC, unsigned int infraDC)
 {
     TB3CTL &= ~MC_0;
-    RedIntensity += 10;
-    if (RedIntensity == MaxIntensity / 2)
+
+    RedIntensity -=IntensityChangeRate;
+    if (RedIntensity == IntensityChangeRate)
     {
-        RedIntensity = 10;
-        InfraIntensity += 10;
-        if (InfraIntensity == MaxIntensity / 2)
+        RedIntensity = MaxRedIntens;
+        InfraIntensity -=IntensityChangeRate;
+        if (MaxInfraIntens == IntensityChangeRate)
         {
-            InfraIntensity = 10;
+            InfraIntensity = MaxRedIntens;
         }
+    }
+
+    if(abs(redDC - infraDC ) < 2)
+    {
+        intensityLocked = 1;
+        CalcSpO2Cylce = 750;
     }
     TB3CCR4 = RedIntensity;
     TB3CCR5 = InfraIntensity;
@@ -154,6 +165,14 @@ void CheckMaximum(BPM *detect, unsigned int counter, unsigned int sampleRed, uns
 
 }
 
+// y(t) = a* x(t) - (1-a) *x(t-1)
+unsigned int MovingAverage(unsigned int sample, unsigned int lastSample)
+{
+    float a = 0.9;
+    return (unsigned int)(a * lastSample + (1-a)*sample);
+
+}
+
 void Software_Trim(); // Software Trim to get the best DCOFTRIM value
 
 void InitLCDPins(void);
@@ -167,7 +186,7 @@ void GetBatteryVoltage(unsigned int *lcdBattFlag);
 int CheckLEDIntensity(int sample);
 
 void CheckZeroCrossing(BPM *detect, unsigned int sample);
-int CalculateSP02(unsigned long rms_AC_RED, unsigned long rms_AC_Infra);
+int CalculateSPO2(unsigned long rms_AC_RED, unsigned long rms_AC_Infra, unsigned int sampleNum);
 int CaluclateBPM(int samples);
 void LCDWriteStatusValues(unsigned int SPO2, unsigned int bpm, unsigned int battStatus);
 void LCDWriteGraph(unsigned int sample, int row);
@@ -177,6 +196,17 @@ unsigned int ConvertADCValueToVoltage(unsigned int value);
 void WriteFatNumbers(unsigned int value, unsigned int offset);
 
 void InitPins(void);
+
+void SP02MinMax(BPM detect)
+{
+
+    float zaehler = 0, nenner = 0;
+    float result = 0;
+
+    zaehler = (float)(detect.Red.maxAC - detect.Red.minAC)/(detect.Infra.maxAC- detect.Infra.minAC);
+    result = zaehler * 10000;
+    debugR2 = (int)result;
+}
 
 void main(void)
 {
@@ -193,7 +223,10 @@ void main(void)
     long DiffAC = 0;
     unsigned int sampleDC = 0;
     unsigned int sampleAC = 0;
-    unsigned int offsetAC = 2030;
+    unsigned int offsetAC = 2100;
+
+    unsigned int lastInfraSample = 0;
+    unsigned int lastRedSample = 0;
 
     unsigned long RmsACRed = 0;
     unsigned long RmsACINfra = 0;
@@ -210,23 +243,21 @@ void main(void)
 
     int ret = 0;
 
-    CSCTL1 |= DCORSEL_5;
-
     unsigned int lcdBattFlag = 0;
     unsigned int meanSPO2 = 0;
 
     FRCTL0 = FRCTLPW | NWAITS_1;
 
-    __bis_SR_register(SCG0);                                   // disable FLL
-    CSCTL3 |= SELREF__REFOCLK;                                 // Set REFO as FLL reference source
-    CSCTL1 = DCOFTRIMEN_1 | DCOFTRIM0 | DCOFTRIM1 | DCORSEL_2; // DCOFTRIM=5, DCO Range = 4MHz
-    CSCTL2 = FLLD_0 + 120;                                     // DCOCLKDIV = 4MHz
-    __delay_cycles(3);
-    __bic_SR_register(SCG0); // enable FLL
-    Software_Trim();         // Software Trim to get the best DCOFTRIM value
+     __bis_SR_register(SCG0);                                   // disable FLL
+     CSCTL3 |= SELREF__REFOCLK;                                 // Set REFO as FLL reference source
+     CSCTL1 = DCOFTRIMEN_1 | DCOFTRIM0 | DCOFTRIM1 | DCORSEL_2; // DCOFTRIM=5, DCO Range = 4MHz
+     CSCTL2 = FLLD_0 + 120;                                     // DCOCLKDIV = 4MHz
+     __delay_cycles(3);
+     __bic_SR_register(SCG0); // enable FLL
+     Software_Trim();         // Software Trim to get the best DCOFTRIM value
 
-    CSCTL4 = SELMS__DCOCLKDIV | SELA__REFOCLK; // set default REFO(~32768Hz) as ACLK source, ACLK = 32768Hz
-                                               // default DCOCLKDIV as MCLK and SMCLK source
+     CSCTL4 = SELMS__DCOCLKDIV | SELA__REFOCLK; // set default REFO(~32768Hz) as ACLK source, ACLK = 32768Hz
+    //                                            // default DCOCLKDIV as MCLK and SMCLK source
 
     // Configuration for ADC Pin start on DC for RED (A3, P1.3)
     // Later each ADC Pin (A1, A3, A10, A11) is configured and triggered manually
@@ -302,15 +333,10 @@ void main(void)
 
         if (StartStepA)
         {
-            GetDiodeADC(RED);
 
-            // Take RMS of AC and Mean of DC
+            GetDiodeADC(RED);
             sampleDC = ADCValue[RED];
             sampleAC = ADCValue[RED + 1];
-            DiffAC = (long)((long)sampleAC - offsetAC);
-            RmsACRed += (DiffAC * DiffAC);
-
-
             ret = CheckLEDIntensity(sampleAC);
 
             if (!ret)
@@ -321,6 +347,9 @@ void main(void)
                 maxDetect.WaitCycles = 125;
                 RmsACRed = 0;
                 RmsACINfra = 0;
+
+                lastInfraSample = 0;
+                lastRedSample = 0;
             }
 
 
@@ -333,12 +362,23 @@ void main(void)
                 GetBatteryVoltage(&lcdBattFlag);
             }
 
+            if (counter == CalcSpO2Cylce)
+            {
+                if(!intensityLocked)
+                {
+                    ChangeIntensity(ADCValue[DCRED],ADCValue[DCINFRA]);
+                }
+            }
+
+
             if (maxDetect.NumZeroCrossing == 7)
             {
+
                 bpm = CaluclateBPM(maxDetect.SampleNum);
                 updLCD = 1;
-                SpO2 =  CalculateSP02(RmsACRed, RmsACINfra);
+                errCounter = 0;
 
+                SpO2 =  CalculateSPO2(RmsACRed, RmsACINfra, counter);
 
                 if(meanBPM != 0)
                 {
@@ -348,19 +388,19 @@ void main(void)
                     meanBPM = bpm;
                 }
 
-                if(abs(SpO2 - lastSpO2) < 5 && lastSpO2 != 0 && lastSpO2 <= 100)
-                {
-                   SpO2 = lastSpO2;
+            }
 
-                }
-                else
-                {
-                    lastSpO2 = SpO2;
-                }
+            // Take RMS of AC and Mean of DC
 
 
-                debugR = ((maxDetect.Red.maxAC - maxDetect.Red.minAC) *10 )/(maxDetect.Infra.maxAC- maxDetect.Infra.minAC);
+            sampleAC = MovingAverage(sampleAC,lastRedSample);
+            DiffAC = (long)((long)sampleAC - offsetAC);
 
+            lastRedSample = sampleAC;
+
+            if(maxDetect.FirstZeroDetected == 1)
+            {
+                RmsACRed += (DiffAC * DiffAC);
             }
 
             UnlockA = 0;
@@ -374,9 +414,15 @@ void main(void)
             GetDiodeADC(INFRA);
             sampleDC = ADCValue[INFRA];
             sampleAC = ADCValue[INFRA + 1];
+            sampleAC = MovingAverage(sampleAC,lastInfraSample);
             DiffAC = (long)((long)sampleAC - offsetAC);
+            lastInfraSample = sampleAC;
 
-            RmsACINfra += (DiffAC * DiffAC);
+            if(maxDetect.FirstZeroDetected == 1)
+            {
+               RmsACINfra += (DiffAC * DiffAC);
+            }
+
 
             counter++;
             validCounter++;
@@ -397,11 +443,14 @@ void main(void)
                 sprintf(text,"%d",debugR);
                 writeStringToLCD("R: ");
                 writeStringToLCD(text);
-                //writeStringToLCD("D.V");
+               // writeStringToLCD(" Data Valid");
                 LCDWriteStatusValues(SpO2, bpm, lcdBattFlag);
 
                 updLCD = 0;
                 counter = 0;
+
+                lastInfraSample = 0;
+                lastRedSample = 0;
 
                 memset(&maxDetect, 0, sizeof(maxDetect));
                 maxDetect.WaitCycles = 250;
@@ -412,11 +461,11 @@ void main(void)
                 setAddr(0, 5);
                 if (errCounter >= 250)
                 {
-                    //writeStringToLCD("D.NV");
+                  //  writeStringToLCD("Data Invalid");
                 }
                 else
                 {
-                    //clearBank(5);
+                   // clearBank(5);
                 }
                 validCounter = 0;
             }
@@ -424,6 +473,8 @@ void main(void)
             UnlockA = 1;
             UnlockB = 0;
             StartStepB = 0;
+
+
         }
     }
     //__bis_SR_register(LPM0);
@@ -601,23 +652,25 @@ int CheckLEDIntensity(int sample)
     return 1;
 }
 
-int CalculateSP02(unsigned long rms_AC_Red, unsigned long rms_AC_Infra)
+int CalculateSPO2(unsigned long rms_AC_Red, unsigned long rms_AC_Infra, unsigned int sampleNum)
 {
     unsigned int R;
 
     float zaehler = 0, nenner = 0;
     float fR = 0;
-    unsigned int SPO2Level;
+    int SPO2Level = 0;
 
     if (rms_AC_Infra != 0)
     {
-        zaehler = log((rms_AC_Red));
-        nenner = log((rms_AC_Infra));
+        zaehler = log(sqrt(rms_AC_Red/sampleNum));
+        nenner = log(sqrt(rms_AC_Infra/sampleNum));
         fR = zaehler/nenner;
+
         if(fR > 1) fR = fR-1;
         else fR = 1 - fR;
 
         R = fR * 100000; // when DC_Red =~ DC_Infra
+        debugR = (int)(fR * 100000*100);
         if (R >= (sizeof(SPO2Lookup) / sizeof(SPO2Lookup[0])))
         {
             return 0;
@@ -625,6 +678,7 @@ int CalculateSP02(unsigned long rms_AC_Red, unsigned long rms_AC_Infra)
 
         SPO2Level = SPO2Lookup[R];
     }
+    return SPO2Level;
 }
 
 int CaluclateBPM(int samples)
