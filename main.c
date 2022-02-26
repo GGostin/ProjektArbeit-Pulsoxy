@@ -41,7 +41,7 @@ typedef enum
 } ADCTYPE;
 unsigned int ADCValue[8]; //
 //unsigned int SPO2Lookup[] = {100, 100, 100, 100, 100, 100, 100, 100, 99, 99, 99, 99, 98, 98, 98, 98, 98, 97, 97, 97, 97, 96, 96, 96, 95, 95, 95, 95, 94, 94, 94, 94, 93, 93, 93, 92, 92, 92, 91, 91, 91, 90, 90, 90, 89, 89, 89, 88, 88, 88, 87, 87, 87, 86, 86, 86, 85, 85, 84, 84, 84, 83, 83, 83, 82, 82, 81, 81, 81, 80, 80, 79, 79, 79, 78, 78, 77, 77, 76, 76, 75, 75, 75, 74, 74, 73, 73, 72, 72, 71, 71, 70, 70, 69, 69, 68, 68, 67, 67, 66, 66, 65, 65, 64, 64, 63, 63, 62, 62, 61, 61, 60, 60, 59, 59, 58, 57, 57, 56, 56, 55, 55, 54, 53, 53, 52, 52, 51, 51, 50, 49, 49, 48, 48, 47, 46, 46, 45, 44, 44, 43, 43, 42, 41, 41, 40, 39, 39, 38, 37, 37};
- const int SPO2Lookup[184] = {95, 95, 95, 96, 96, 96, 97, 97, 97, 97, 97, 98, 98, 98, 98, 98, 99, 99, 99, 99,                              99, 99, 99, 99, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
+ const int SPO2Lookup[184] = {95, 95, 95, 96, 96, 96, 97, 97, 97, 97, 97, 98, 98, 98, 98, 98, 99, 99, 99, 99, 99, 99, 99, 99, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
                               100, 100, 100, 100, 99, 99, 99, 99, 99, 99, 99, 99, 98, 98, 98, 98, 98, 98, 97, 97,
                               97, 97, 96, 96, 96, 96, 95, 95, 95, 94, 94, 94, 93, 93, 93, 92, 92, 92, 91, 91,
                               90, 90, 89, 89, 89, 88, 88, 87, 87, 86, 86, 85, 85, 84, 84, 83, 82, 82, 81, 81,
@@ -65,6 +65,7 @@ int RedIntensity = 60;
 int InfraIntensity = 60;
 
 int CalcSpO2Cylce = 250;
+int showValid = 0;
 
 unsigned int debugR = 0;
 unsigned int debugR2 = 0;
@@ -96,12 +97,8 @@ typedef struct TagBPM
     unsigned int NumZeroCrossing;
     unsigned int SampleNum;
     unsigned int StartAqui;
-    int MinDetectNum;
-    unsigned int ValidMinimums;
-    unsigned int LastACCheck;
     unsigned int WaitCycles;
     int FirstZeroDetected;
-    Direction Dir;
     MinMax Red;
     MinMax Infra;
 } BPM;
@@ -165,7 +162,7 @@ void CheckMaximum(BPM *detect, unsigned int counter, unsigned int sampleRed, uns
 
 }
 
-// y(t) = a* x(t) - (1-a) *x(t-1)
+// y(t) = a* x(t) + (1-a) *x(t-1)
 unsigned int MovingAverage(unsigned int sample, unsigned int lastSample)
 {
     float a = 0.95;
@@ -313,10 +310,10 @@ void main(void)
     initLCD();
     clearLCD();
 
-    setAddr(8, 0);
+    setAddr(3, 0);
     writeStringToLCD("\%SpO2");
 
-    setAddr(60, 0);
+    setAddr(55, 0);
     writeStringToLCD("bpm");
 
     clearBank(4);
@@ -345,6 +342,7 @@ void main(void)
                 maxDetect.WaitCycles = 125;
                 RmsACRed = 0;
                 RmsACINfra = 0;
+                showValid = 0;
 
                 lastInfraSample = 0;
                 lastRedSample = 0;
@@ -369,6 +367,12 @@ void main(void)
                 bpm = CaluclateBPM(maxDetect.SampleNum);
                 updLCD = 1;
                 errCounter = 0;
+
+                showValid++;
+                if(showValid >= 3)
+                {
+                    showValid = 3;
+                }
 
                 SpO2 =  CalculateSPO2(RmsACRed, RmsACINfra, counter);
 
@@ -445,7 +449,16 @@ void main(void)
 
             if (updLCD)
             {
-                char text[6];
+
+                if(showValid == 3)
+                {
+                //We only write new Values when they are Valid
+                //Informs the User.
+                clearBank(5);
+                setAddr(0, 5);
+                writeStringToLCD("Data Valid");
+                }
+
 
                 LCDWriteStatusValues(SpO2, bpm, lcdBattFlag);
 
@@ -728,11 +741,7 @@ void InitLCDPins(void)
 void LCDWriteStatusValues(unsigned int SPO2, unsigned int bpm, unsigned int battStatus)
 {
 
-    //We only write new Values when they are Valid
-    //Informs the User.
-    clearBank(5);
-    setAddr(0, 5);
-    writeStringToLCD("Data Valid");
+
 
     clearBank(2);
     clearBank(3);
