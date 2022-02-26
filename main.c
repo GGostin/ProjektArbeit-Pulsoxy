@@ -134,6 +134,7 @@ void ChangeIntensity(unsigned int redDC, unsigned int infraDC)
 void CheckMaximum(BPM *detect, unsigned int counter, unsigned int sampleRed, unsigned int sampleInfra)
 {
 
+    //around the mean value of 1.67 V
     unsigned int standardValue = 2000;
 
 
@@ -546,8 +547,8 @@ void InitPins(void)
 void CheckZeroCrossing(BPM *detect, unsigned int sample)
 {
 
-    //2100 ~ 1.69 V
-    int diff = abs(sample - 2100);
+    //1860 around 1.5 V
+    int diff = abs(sample - 1860);
 
     if(detect->FirstZeroDetected == 1)
     {
