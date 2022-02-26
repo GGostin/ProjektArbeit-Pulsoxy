@@ -363,7 +363,7 @@ void main(void)
             }
 
 
-            if (maxDetect.NumZeroCrossing == 7)
+            if (maxDetect.NumZeroCrossing == 5)
             {
 
                 bpm = CaluclateBPM(maxDetect.SampleNum);
@@ -379,6 +379,18 @@ void main(void)
                 else{
                     meanBPM = bpm;
                 }
+
+                //HeartRate can't change to fast.
+                if(abs(SpO2 - lastSpO2) > 5 && lastSpO2 != 0 && lastSpO2 <= 100)
+                {
+                   SpO2 = lastSpO2;
+
+                }
+                else
+                {
+                    lastSpO2 = SpO2;
+                }
+
 
             }
 
@@ -681,7 +693,7 @@ int CaluclateBPM(int samples)
 {
     unsigned int bpm;
     const unsigned int samplesBPM = 250; // Per 1 sec we take roughly 250 samples of the red LED
-    const unsigned int numOfPeriods = 3;
+    const unsigned int numOfPeriods = 2;
 
 
 
