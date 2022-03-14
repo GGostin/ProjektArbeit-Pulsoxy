@@ -59,13 +59,15 @@ unsigned int UnlockB = 0;
 static unsigned int MaxIntensity = 25 * MCLK_FREQ_MHZ;
 
 static unsigned int IntensityChangeRate = 5;
-int MaxRedIntens = 60;
-int MaxInfraIntens = 60;
-int RedIntensity = 60;
-int InfraIntensity = 60;
+int MaxRedIntens = 15;
+int MaxInfraIntens = 15;
+int RedIntensity = 15;
+int InfraIntensity = 15;
 
 int CalcSpO2Cylce = 250;
 int showValid = 0;
+
+unsigned long killCounter = 0;
 
 unsigned int debugR = 0;
 unsigned int debugR2 = 0;
@@ -85,12 +87,6 @@ unsigned int minAC;
 int delayZeroCrossing = 0;
 int ZeroCrossingCounters[100];
 
-typedef enum TagDirection
-{
-    Rising = 0,
-    Falling = 1,
-    Undefined = 2
-} Direction;
 
 typedef struct TagBPM
 {
@@ -183,7 +179,7 @@ void GetBatteryVoltage(unsigned int *lcdBattFlag);
 
 int CheckLEDIntensity(int sample);
 
-void CheckZeroCrossing(BPM *detect, unsigned int sample);
+void CheckZeroCrossing(BPM *detect, int sample);
 int CalculateSPO2(unsigned long rms_AC_RED, unsigned long rms_AC_Infra, unsigned int sampleNum);
 int CaluclateBPM(int samples);
 void LCDWriteStatusValues(unsigned int SPO2, unsigned int bpm, unsigned int battStatus);
@@ -195,16 +191,6 @@ void WriteFatNumbers(unsigned int value, unsigned int offset);
 
 void InitPins(void);
 
-void SP02MinMax(BPM detect)
-{
-
-    float zaehler = 0, nenner = 0;
-    float result = 0;
-
-    zaehler = (float)(detect.Red.maxAC - detect.Red.minAC)/(detect.Infra.maxAC- detect.Infra.minAC);
-    result = zaehler * 10000;
-    debugR2 = (int)result;
-}
 
 void main(void)
 {
@@ -242,7 +228,6 @@ void main(void)
     int ret = 0;
 
     unsigned int lcdBattFlag = 0;
-    unsigned int meanSPO2 = 0;
 
     FRCTL0 = FRCTLPW | NWAITS_1;
 
@@ -292,8 +277,8 @@ void main(void)
     // Two PWM for Intensity
     // P6.3 and P6.4
 
-    // P2DIR |= BIT5;
-    // P2OUT |= BIT5;
+     P2DIR |= BIT5;
+     P2OUT |= BIT5;
 
     P6DIR |= BIT3 | BIT4;
     P6SEL0 |= BIT3 | BIT4;
@@ -357,7 +342,7 @@ void main(void)
             {
                 if(!intensityLocked)
                 {
-                    ChangeIntensity(ADCValue[DCRED],ADCValue[DCINFRA]);
+                  //  ChangeIntensity(ADCValue[DCRED],ADCValue[DCINFRA]);
                 }
             }
 
@@ -427,6 +412,8 @@ void main(void)
             DiffAC = (long)((long)sampleAC - offsetAC);
             lastInfraSample = sampleAC;
 
+            killCounter++;
+
             if(maxDetect.FirstZeroDetected == 1)
             {
                RmsACINfra += (DiffAC * DiffAC);
@@ -456,7 +443,7 @@ void main(void)
                 //We only write new Values when they are Valid
                 //Informs the User.
                 clearBank(5);
-                setAddr(0, 5);
+                setAddr(7, 5);
                 writeStringToLCD("Data Valid");
                 }
 
@@ -475,7 +462,7 @@ void main(void)
 
             if (validCounter == 250)
             {
-                setAddr(0, 5);
+                setAddr(7, 5);
                 if (errCounter >= 250)
                 {
                    writeStringToLCD("Data Invalid");
@@ -488,7 +475,15 @@ void main(void)
             StartStepB = 0;
 
         }
+        if(killCounter == 30000)
+        {
+            P2OUT &= ~BIT5;
+        }
+
     }
+
+
+
     //__bis_SR_register(LPM0);
 } // eof main
 
@@ -544,18 +539,17 @@ void InitPins(void)
 //Check if the alternating signal reaches a speficic range.
 //Afterwards wait a bit before checking again.
 //We start to count the samples after the first Check was found.
-void CheckZeroCrossing(BPM *detect, unsigned int sample)
+void CheckZeroCrossing(BPM *detect, int sample)
 {
 
-    //1860 around 1.5 V
-    int diff = abs(sample - 1860);
+    int diff = abs(sample - 1940);
 
     if(detect->FirstZeroDetected == 1)
     {
         detect->SampleNum++;
     }
 
-    if (detect->WaitCycles == 0 )
+    if (detect->WaitCycles == 0)
     {
         if (diff < 40 )
         {
@@ -563,6 +557,7 @@ void CheckZeroCrossing(BPM *detect, unsigned int sample)
             detect->FirstZeroDetected = 1;
             detect->WaitCycles = 50;
         }
+
     }
     else{
         detect->WaitCycles--;
@@ -742,12 +737,20 @@ void InitLCDPins(void)
 void LCDWriteStatusValues(unsigned int SPO2, unsigned int bpm, unsigned int battStatus)
 {
 
-
-
     clearBank(2);
     clearBank(3);
-    WriteFatNumbers(SPO2, -5);
-    WriteFatNumbers(bpm, 42);
+    setAddr(0,2);
+    if(SPO2 <= 70)
+    {
+        writeStringToLCD("krit.SpO2 Wert unter 70%");
+    }
+    else
+    {
+        WriteFatNumbers(SPO2, -5);
+        WriteFatNumbers(bpm, 42);
+    }
+
+
 
     if (lastBattFlag = !battStatus)
     {
@@ -986,3 +989,4 @@ void Software_Trim()
     CSCTL1 = csCtl1Copy; // Reload locked DCOFTRIM
     while (CSCTL7 & (FLLUNLOCK0 | FLLUNLOCK1)); // Poll until FLL is locked
 }
+
